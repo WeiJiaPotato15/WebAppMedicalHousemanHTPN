@@ -11,12 +11,14 @@ from lib.db import get_store
 from lib.constants import LEAVE_DUTY_TYPES
 from lib.viz import (
     assignments_df,
+    avg_weekly_hours_recent,
     count_leaves,
     days_in_posting,
     leave_dates_figure,
     leave_progress_figure,
     station_mix_donut,
-    total_hours,
+    weekly_hours_df,
+    weekly_hours_trend_figure,
 )
 
 st.set_page_config(page_title="My Stats — HTPN Roster", page_icon="📊", layout="wide")
@@ -55,10 +57,12 @@ def main() -> None:
 
     leaves = count_leaves(df)
     cap = int(safe_secret("app", "leave_cap", 10))
+    weekly = weekly_hours_df(df)
+    avg4 = avg_weekly_hours_recent(weekly, n=4)
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Days in posting", days_in_posting(me))
-    m2.metric("Hours so far", f"{total_hours(df)} h")
+    m2.metric("Avg weekly hours (last 4w)", f"{avg4:.1f} h")
     m3.metric("EL/MC used", f"{leaves} / {cap}",
               delta=("OK" if leaves < cap else "AT CAP"),
               delta_color=("normal" if leaves < cap else "inverse"))
@@ -77,6 +81,10 @@ def main() -> None:
     with c2:
         st.plotly_chart(station_mix_donut(df), width="stretch",
                         config={"displayModeBar": False})
+
+    st.subheader("Weekly working hours trend")
+    st.plotly_chart(weekly_hours_trend_figure(weekly), width="stretch",
+                    config={"displayModeBar": False})
 
     st.subheader("EL/MC days taken")
     st.plotly_chart(leave_dates_figure(df), width="stretch",

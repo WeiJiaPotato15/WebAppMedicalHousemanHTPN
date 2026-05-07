@@ -137,6 +137,63 @@ def _hours_color(h: int) -> str:
     return "#0ea5e9"      # sky — within accepted band
 
 
+def weekly_hours_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate hours by ISO week (Monday-anchored). Sorted ascending."""
+    if df.empty:
+        return pd.DataFrame(columns=["week_monday", "hours"])
+    d = df.copy()
+    d["on_date"] = pd.to_datetime(d["on_date"])
+    d["week_monday"] = d["on_date"] - pd.to_timedelta(d["on_date"].dt.weekday, unit="D")
+    return (
+        d.groupby("week_monday", as_index=False)["hours"]
+        .sum()
+        .sort_values("week_monday")
+        .reset_index(drop=True)
+    )
+
+
+def avg_weekly_hours_recent(weekly: pd.DataFrame, n: int = 4) -> float:
+    if weekly.empty:
+        return 0.0
+    return float(weekly.tail(n)["hours"].mean())
+
+
+def weekly_hours_trend_figure(weekly: pd.DataFrame) -> go.Figure:
+    """Line chart of weekly working hours with the 60h target / 64h cap lines.
+    Markers colored by the same threshold rule used elsewhere."""
+    if weekly.empty:
+        fig = go.Figure()
+        fig.update_layout(
+            title="No assignments yet",
+            height=260, margin=dict(l=10, r=10, t=40, b=10),
+        )
+        return fig
+    fig = go.Figure(go.Scatter(
+        x=weekly["week_monday"], y=weekly["hours"],
+        mode="lines+markers+text",
+        line=dict(color="#0ea5e9", width=2),
+        marker=dict(
+            size=11,
+            color=weekly["hours"].apply(_hours_color),
+            line=dict(color="#0c4a6e", width=1),
+        ),
+        text=[f"{int(h)}h" for h in weekly["hours"]],
+        textposition="top center",
+        textfont=dict(size=11),
+        hovertemplate="<b>Week of %{x|%d %b %Y}</b><br>%{y} hours<extra></extra>",
+    ))
+    fig.add_hline(y=HOURS_LOW, line_dash="dot", line_color="#92400e",
+                  annotation_text=f"{HOURS_LOW}h target", annotation_position="bottom right")
+    fig.add_hline(y=HOURS_HIGH, line_dash="dot", line_color="#dc2626",
+                  annotation_text=f"{HOURS_HIGH}h cap", annotation_position="top right")
+    fig.update_layout(
+        xaxis_title="Week (Monday)", yaxis_title="Hours",
+        height=320, margin=dict(l=10, r=10, t=20, b=30),
+        hovermode="x unified",
+    )
+    return fig
+
+
 def daily_category_counts(
     edited: pd.DataFrame,
     day_cols: list[str],
