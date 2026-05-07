@@ -14,6 +14,9 @@ class Officer(BaseModel):
     ic_last4: Optional[str] = None
     phone: Optional[str] = None
     active: bool = True
+    # Primary ward for grouping in the roster grid (e.g. "W1", "W2", "MOPD",
+    # "PERI"). Mirrors the Google Sheet's row groupings. None = ungrouped.
+    ward_group: Optional[str] = None
 
 
 class Shift(BaseModel):

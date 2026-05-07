@@ -17,6 +17,8 @@ from lib.constants import safe_secret, week_dates, week_label, week_start
 from lib.db import get_store
 from lib.presence import beat, render_sidebar
 from lib.viz import (
+    HOURS_LIMIT,
+    HOURS_WARN,
     assignments_df,
     hours_per_staff_figure,
     staff_per_station_per_day_figure,
@@ -62,8 +64,8 @@ def main() -> None:
         st.warning("Add shift codes first on the **Master Data** page.")
         return
 
-    # Row order: template if this week was explicitly created, else global officer list.
-    # Filter to officers that still exist (deleted ones are dropped, not preserved as ghosts).
+    # Row order: template if this week was explicitly created, else group by
+    # ward (matching the source Google Sheet) then alphabetical name.
     by_email = {o.email: o for o in all_officers}
     if template_emails:
         officers = [by_email[e] for e in template_emails if e in by_email]
@@ -72,16 +74,17 @@ def main() -> None:
             "Adding/removing officers globally won't affect this week's row layout."
         )
     else:
-        officers = all_officers
+        officers = sorted(all_officers, key=lambda x: ((x.ward_group or "~"), x.name))
 
     days = week_dates(monday)
     day_cols = [d.strftime("%a %d/%m") for d in days]
+    shifts_by_code = {s.code: s for s in shifts}
 
-    # Build the grid as a DataFrame: index by officer name, columns by date.
+    # Build the grid as a DataFrame: ward + officer rows, day columns.
     by_key = {(a.email, a.on_date): a for a in assignments}
     grid_rows = []
     for o in officers:
-        row = {"name": o.name, "email": o.email}
+        row = {"ward": o.ward_group or "—", "name": o.name, "email": o.email}
         for d, dlabel in zip(days, day_cols):
             row[dlabel] = by_key[(o.email, d)].shift_code if (o.email, d) in by_key else ""
         grid_rows.append(row)
@@ -89,6 +92,7 @@ def main() -> None:
 
     shift_options = [""] + [s.code for s in shifts]
     column_config: dict = {
+        "ward": st.column_config.TextColumn("Ward", disabled=True, width="small"),
         "name": st.column_config.TextColumn("Name", disabled=True),
         "email": st.column_config.TextColumn("Email", disabled=True),
     }
@@ -125,6 +129,50 @@ def main() -> None:
         # Bust caches so other admins / the public page pick this up immediately.
         st.cache_data.clear()
         st.rerun()
+
+    # ---- Hours summary with over-cap highlighting -------------------------- #
+    summary_rows = []
+    for _, r in edited.iterrows():
+        total = sum(
+            shifts_by_code[r[c]].hours
+            for c in day_cols
+            if r[c] and r[c] in shifts_by_code
+        )
+        summary_rows.append({
+            "Ward": r.get("ward", "—"),
+            "Name": r["name"],
+            "Hours": int(total),
+        })
+    summary = pd.DataFrame(summary_rows)
+    over = summary[summary["Hours"] > HOURS_LIMIT]
+    warn = summary[(summary["Hours"] > HOURS_WARN) & (summary["Hours"] <= HOURS_LIMIT)]
+
+    if not over.empty:
+        st.error(
+            f"⚠️ **{len(over)} HO(s) over the {HOURS_LIMIT}h cap this week**: "
+            + ", ".join(f"{n} ({h}h)" for n, h in zip(over["Name"], over["Hours"]))
+        )
+    elif not warn.empty:
+        st.warning(
+            f"⚠️ {len(warn)} HO(s) in the {HOURS_WARN+1}-{HOURS_LIMIT}h band: "
+            + ", ".join(f"{n} ({h}h)" for n, h in zip(warn["Name"], warn["Hours"]))
+        )
+
+    st.caption("**Hours summary** — yellow = approaching cap, red = over cap.")
+
+    def _highlight(row):
+        h = row["Hours"]
+        if h > HOURS_LIMIT:
+            return ["background-color: #fee2e2; color: #991b1b; font-weight: 600"] * len(row)
+        if h > HOURS_WARN:
+            return ["background-color: #fef3c7; color: #92400e"] * len(row)
+        return [""] * len(row)
+
+    st.dataframe(
+        summary.style.apply(_highlight, axis=1),
+        hide_index=True,
+        width="stretch",
+    )
 
     # ---- Create roster for next week --------------------------------------- #
     next_monday = monday + timedelta(days=7)

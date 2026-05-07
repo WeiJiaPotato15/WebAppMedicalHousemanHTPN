@@ -143,9 +143,12 @@ class MemoryStore(Store):
         if sample_data:
             # 3 sample officers so the local UI has something to render.
             samples = [
-                Officer(email="alice@example.com", name="Dr. Alice", posting_start_date=_d(2026, 2, 1)),
-                Officer(email="ben@example.com", name="Dr. Ben", posting_start_date=_d(2026, 2, 15)),
-                Officer(email="chen@example.com", name="Dr. Chen", posting_start_date=_d(2026, 3, 1)),
+                Officer(email="alice@example.com", name="Dr. Alice",
+                        posting_start_date=_d(2026, 2, 1), ward_group="W1"),
+                Officer(email="ben@example.com", name="Dr. Ben",
+                        posting_start_date=_d(2026, 2, 15), ward_group="W2"),
+                Officer(email="chen@example.com", name="Dr. Chen",
+                        posting_start_date=_d(2026, 3, 1), ward_group="PERI"),
             ]
             for o in samples:
                 self.upsert_officer(o)
@@ -283,6 +286,7 @@ class DynamoStore(Store):
                 ic_last4=it.get("ic_last4"),
                 phone=it.get("phone"),
                 active=it.get("active", True),
+                ward_group=it.get("ward_group"),
             ))
         return sorted(out, key=lambda o: o.name)
 
@@ -295,6 +299,7 @@ class DynamoStore(Store):
             "ic_last4": o.ic_last4,
             "phone": o.phone,
             "active": o.active,
+            "ward_group": o.ward_group,
         })
         self._t(T_OFFICERS).put_item(Item=item)
 

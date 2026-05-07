@@ -26,10 +26,13 @@ def main() -> None:
             c1, c2 = st.columns(2)
             email = c1.text_input("Email (used as ID)").strip().lower()
             name = c2.text_input("Full name").strip()
-            c3, c4, c5 = st.columns(3)
+            c3, c4, c5, c6 = st.columns(4)
             posting_start = c3.date_input("Posting start date", value=date.today())
             ic_last4 = c4.text_input("IC last 4 digits", max_chars=4)
             phone = c5.text_input("Phone")
+            ward_group = c6.text_input(
+                "Ward group", help="Primary ward for row grouping in the roster (e.g. W1, W2, MOPD, PERI)."
+            ).strip() or None
             submitted = st.form_submit_button("Add", type="primary")
             if submitted:
                 if not email or not name:
@@ -38,6 +41,7 @@ def main() -> None:
                     store.upsert_officer(Officer(
                         email=email, name=name, posting_start_date=posting_start,
                         ic_last4=(ic_last4 or None), phone=(phone or None), active=True,
+                        ward_group=ward_group,
                     ))
                     store.add_audit(AuditEntry(
                         timestamp=now_iso(), actor=user.email, action="upsert_officer",
@@ -62,6 +66,9 @@ def main() -> None:
             "ic_last4": st.column_config.TextColumn("IC last 4", max_chars=4),
             "phone": st.column_config.TextColumn("Phone"),
             "active": st.column_config.CheckboxColumn("Active"),
+            "ward_group": st.column_config.TextColumn(
+                "Ward group", help="W1, W2, MOPD, PERI, … — primary row grouping in the roster."
+            ),
         },
         width="stretch",
         hide_index=True,

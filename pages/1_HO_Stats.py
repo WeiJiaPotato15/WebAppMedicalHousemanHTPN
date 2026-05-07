@@ -3,14 +3,17 @@ from __future__ import annotations
 
 from datetime import date
 
+import pandas as pd
 import streamlit as st
 
 from lib.constants import safe_secret
 from lib.db import get_store
+from lib.constants import LEAVE_DUTY_TYPES
 from lib.viz import (
     assignments_df,
     count_leaves,
     days_in_posting,
+    leave_dates_figure,
     leave_progress_figure,
     station_mix_donut,
     total_hours,
@@ -74,6 +77,19 @@ def main() -> None:
     with c2:
         st.plotly_chart(station_mix_donut(df), width="stretch",
                         config={"displayModeBar": False})
+
+    st.subheader("EL/MC days taken")
+    st.plotly_chart(leave_dates_figure(df), width="stretch",
+                    config={"displayModeBar": False})
+    leave_rows = df[df["duty_type"].isin(LEAVE_DUTY_TYPES)][
+        ["on_date", "shift_code"]
+    ].sort_values("on_date").reset_index(drop=True)
+    if not leave_rows.empty:
+        leave_rows["day"] = pd.to_datetime(leave_rows["on_date"]).dt.day_name()
+        leave_rows = leave_rows.rename(
+            columns={"on_date": "Date", "shift_code": "Code", "day": "Day"}
+        )[["Date", "Day", "Code"]]
+        st.dataframe(leave_rows, hide_index=True, width="stretch")
 
     with st.expander("My recent assignments"):
         if df.empty:

@@ -119,16 +119,38 @@ def staff_per_station_per_day_figure(df: pd.DataFrame, min_per_ward: int = 1) ->
     return fig
 
 
+HOURS_WARN = 60   # yellow band 61-64
+HOURS_LIMIT = 64  # red over 64
+
+
+def _hours_color(h: int) -> str:
+    if h > HOURS_LIMIT:
+        return "#ef4444"  # red
+    if h > HOURS_WARN:
+        return "#f59e0b"  # amber
+    return "#0ea5e9"      # sky
+
+
 def hours_per_staff_figure(df: pd.DataFrame) -> go.Figure:
+    """Horizontal bar chart of weekly hours per HO. Bars colored by threshold:
+    blue ≤60, amber 61-64, red >64. A dotted line marks the 64h cap."""
     if df.empty:
         return go.Figure().update_layout(title="No data")
     by_staff = df.groupby("name", as_index=False)["hours"].sum().sort_values("hours", ascending=True)
-    fig = px.bar(
-        by_staff, x="hours", y="name", orientation="h",
+    by_staff["color"] = by_staff["hours"].apply(_hours_color)
+    fig = go.Figure(go.Bar(
+        x=by_staff["hours"], y=by_staff["name"], orientation="h",
+        marker_color=by_staff["color"],
+        text=by_staff["hours"], textposition="outside",
+    ))
+    fig.add_vline(x=HOURS_LIMIT, line_dash="dot", line_color="#dc2626",
+                  annotation_text=f"{HOURS_LIMIT}h cap", annotation_position="top right")
+    fig.update_layout(
         title="Working hours this period",
-        labels={"hours": "Hours", "name": "House Officer"},
+        xaxis_title="Hours", yaxis_title=None,
+        height=max(300, 22 * len(by_staff) + 80),
+        margin=dict(l=10, r=10, t=40, b=10),
     )
-    fig.update_layout(height=max(300, 22 * len(by_staff) + 80), margin=dict(l=10, r=10, t=40, b=10))
     return fig
 
 
@@ -143,6 +165,34 @@ def station_mix_donut(df_for_one_officer: pd.DataFrame) -> go.Figure:
     )
     fig = px.pie(grouped, names="label", values="days", hole=0.5, title="Days per station")
     fig.update_layout(height=320, margin=dict(l=10, r=10, t=40, b=10))
+    return fig
+
+
+def leave_dates_figure(df_for_one_officer: pd.DataFrame) -> go.Figure:
+    """Timeline of EL/MC dates: one marker per leave day, hover shows date+code."""
+    leaves = df_for_one_officer[df_for_one_officer["duty_type"].isin(LEAVE_DUTY_TYPES)]
+    if leaves.empty:
+        fig = go.Figure()
+        fig.update_layout(title="No EL/MC days taken yet", height=180,
+                          margin=dict(l=10, r=10, t=40, b=10))
+        return fig
+    leaves = leaves.sort_values("on_date").assign(label=lambda d: d["shift_code"])
+    fig = go.Figure(go.Scatter(
+        x=leaves["on_date"], y=[1] * len(leaves), mode="markers+text",
+        text=leaves["on_date"].astype(str).str.slice(5),  # MM-DD
+        textposition="top center", textfont={"size": 11},
+        marker=dict(size=18, color=DUTY_COLORS["MC/EL"], symbol="circle",
+                    line=dict(color="#7f1d1d", width=1)),
+        hovertemplate="<b>%{x|%a %d %b %Y}</b><br>%{customdata}<extra></extra>",
+        customdata=leaves["shift_code"],
+    ))
+    fig.update_yaxes(visible=False, range=[0.5, 1.6])
+    fig.update_xaxes(title=None, showgrid=True)
+    fig.update_layout(
+        title=f"EL/MC days — {len(leaves)} taken",
+        height=200, margin=dict(l=10, r=10, t=40, b=20),
+        showlegend=False,
+    )
     return fig
 
 

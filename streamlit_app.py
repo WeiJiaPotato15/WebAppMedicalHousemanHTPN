@@ -1,6 +1,7 @@
-"""Public landing page: weekly roster grid for Hospital Kajang Medical Department.
+"""Entry point: builds the sidebar navigation. Each page sets its own page_config.
 
-No login required for viewing. Admins click the Login page in the sidebar to edit.
+Using st.navigation here so the entry page can be labeled "Overview" in the
+sidebar (Streamlit otherwise derives the label from the filename).
 """
 from __future__ import annotations
 
@@ -8,15 +9,9 @@ from datetime import date, timedelta
 
 import streamlit as st
 
-from lib.constants import week_label, week_start
+from lib.constants import DUTY_COLORS, week_label, week_start
 from lib.db import get_store
 from lib.viz import assignments_df, week_grid_figure
-
-st.set_page_config(
-    page_title="HKJ Medical HO Roster",
-    page_icon="🏥",
-    layout="wide",
-)
 
 
 @st.cache_data(ttl=10)
@@ -29,11 +24,16 @@ def _load_week(monday_iso: str):
     return a, s, o
 
 
-def main() -> None:
+def overview() -> None:
+    """Public read-only weekly roster grid."""
+    st.set_page_config(
+        page_title="HKJ Medical HO Roster",
+        page_icon="🏥",
+        layout="wide",
+    )
     st.title("🏥 Medical Houseman Roster — Hospital Kajang")
     st.caption("Read-only public view. Updated live as the leader edits.")
 
-    # Week navigator
     if "view_monday" not in st.session_state:
         st.session_state.view_monday = week_start(date.today())
 
@@ -60,11 +60,22 @@ def main() -> None:
         )
         return
 
+    # Sort officers by ward_group then name so the heatmap rows mirror the
+    # admin editor's grouping. Officers without ward_group fall to the bottom.
+    by_email = {x.email: x for x in o}
+    sort_keys = {
+        x.email: ((x.ward_group or "~"), x.name) for x in o
+    }
+    if not df.empty:
+        df = df.assign(
+            __sort_key=df["email"].map(sort_keys),
+            ward_group=df["email"].map(lambda e: by_email[e].ward_group if e in by_email else None),
+        ).sort_values("__sort_key").drop(columns="__sort_key")
+
     fig = week_grid_figure(df, st.session_state.view_monday)
     st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
 
     with st.expander("Legend (duty types)"):
-        from lib.constants import DUTY_COLORS
         cols = st.columns(4)
         for i, (k, v) in enumerate(DUTY_COLORS.items()):
             with cols[i % 4]:
@@ -81,5 +92,18 @@ def main() -> None:
     )
 
 
-if __name__ == "__main__":
-    main()
+# ---- Sidebar navigation -------------------------------------------------- #
+
+pages = [
+    st.Page(overview, title="Overview", icon="🏥", default=True, url_path="overview"),
+    st.Page("pages/1_HO_Stats.py", title="HO Stats", icon="📊"),
+    st.Page("pages/2_Login.py", title="Login", icon="🔐"),
+    st.Page("pages/3_Edit_Roster.py", title="Edit Roster", icon="📝"),
+    st.Page("pages/4_Kanban_View.py", title="Kanban", icon="🎯"),
+    st.Page("pages/5_Officers.py", title="Officers", icon="👥"),
+    st.Page("pages/6_Master_Data.py", title="Master Data", icon="⚙️"),
+    st.Page("pages/7_Admins.py", title="Admins", icon="🛡️"),
+    st.Page("pages/8_Activity.py", title="Activity", icon="📜"),
+]
+
+st.navigation(pages).run()
