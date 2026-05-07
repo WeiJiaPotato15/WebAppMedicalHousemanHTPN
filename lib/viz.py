@@ -137,6 +137,53 @@ def _hours_color(h: int) -> str:
     return "#0ea5e9"      # sky — within accepted band
 
 
+def daily_category_counts(
+    edited: pd.DataFrame,
+    day_cols: list[str],
+    days: list,
+    shifts_by_code: dict,
+) -> pd.DataFrame:
+    """Build a (category × day) count grid from the editor's current state.
+
+    Categorization:
+    - EH/OH/OC/TAG → bucket by the shift's ward (W1, W2, …)
+    - everything else → bucket by duty_type (MOPD, PERI, MC/EL, OFF, …)
+
+    Rows sorted: numeric wards first (W1, W2, …), other ward strings, then
+    non-ward categories alphabetically.
+    """
+    counts: dict[str, dict[object, int]] = {}
+    for _, r in edited.iterrows():
+        for d, dlabel in zip(days, day_cols):
+            code = r[dlabel]
+            if not code or code not in shifts_by_code:
+                continue
+            s = shifts_by_code[code]
+            if s.duty_type in {"EH", "OH", "OC", "TAG"}:
+                cat = s.ward or s.duty_type
+            else:
+                cat = s.duty_type
+            row = counts.setdefault(cat, {d: 0 for d in days})
+            row[d] = row.get(d, 0) + 1
+
+    if not counts:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(counts).T.fillna(0).astype(int).reindex(columns=days, fill_value=0)
+
+    def sort_key(cat: str):
+        if cat.startswith("W") and cat[1:].isdigit():
+            return (0, 0, int(cat[1:]))
+        if cat.startswith("W"):
+            return (0, 1, cat)
+        return (1, 0, cat)
+
+    df = df.reindex(sorted(df.index, key=sort_key))
+    df.columns = [d.strftime("%a %d/%m") for d in df.columns]
+    df.index.name = "Category"
+    return df
+
+
 def hours_per_staff_figure(df: pd.DataFrame) -> go.Figure:
     """Horizontal bar chart of weekly hours per HO. Bars colored by threshold:
     blue 60-64 (accepted), amber <60 (too few), red >64 (over cap). Dotted

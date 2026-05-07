@@ -20,6 +20,7 @@ from lib.viz import (
     HOURS_HIGH,
     HOURS_LOW,
     assignments_df,
+    daily_category_counts,
     hours_per_staff_figure,
     staff_per_station_per_day_figure,
 )
@@ -183,6 +184,18 @@ def main() -> None:
         column_order=("Ward", "Name", "Hours"),
         width="stretch",
     )
+
+    # ---- Staff per category per day ---------------------------------------- #
+    st.subheader("Staff per category per day")
+    st.caption(
+        "Counts based on the grid above. Wards count people physically in W1/W2/… "
+        "(EH/OH/OC/TAG). MOPD, PERI, MC/EL, OFF etc. count by duty type."
+    )
+    cat_table = daily_category_counts(edited, day_cols, days, shifts_by_code)
+    if cat_table.empty:
+        st.info("No assignments yet to summarize.")
+    else:
+        st.dataframe(cat_table, width="stretch")
 
     # ---- Create roster for next week --------------------------------------- #
     next_monday = monday + timedelta(days=7)
