@@ -25,6 +25,9 @@ class Shift(BaseModel):
     hours: int  # 0, 10, 14, 15, ...
     duty_type: str  # "EH", "OH", "OC", "TAG", "MOPD", "PERI", "PENDING ED", "OFF", "PC", "AL", "MC/EL", ...
     ward: Optional[str] = None  # "W1", "W2", "PERI", "ED", "W1+W72", ...
+    # Per-shift color override. Hex string like "#0f766e". When None, the
+    # heatmap falls back to constants.DUTY_COLORS[duty_type].
+    color: Optional[str] = None
 
 
 class Assignment(BaseModel):

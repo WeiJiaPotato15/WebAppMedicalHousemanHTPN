@@ -26,17 +26,21 @@ def assignments_df(
     shifts: list[Shift],
     officers: list[Officer],
 ) -> pd.DataFrame:
-    """Wide-ish frame with one row per (officer, date) including derived fields."""
+    """Wide-ish frame with one row per (officer, date) including derived fields,
+    including the per-shift color (per-shift override, then duty_type default)."""
+    cols = ["ic_number", "name", "on_date", "shift_code", "duty_type", "ward", "hours", "color"]
     if not assignments:
-        return pd.DataFrame(columns=[
-            "ic_number", "name", "on_date", "shift_code", "duty_type", "ward", "hours",
-        ])
+        return pd.DataFrame(columns=cols)
     s_by_code = {s.code: s for s in shifts}
     o_by_ic = {o.ic_number: o for o in officers}
     rows = []
     for a in assignments:
         s = s_by_code.get(a.shift_code)
         o = o_by_ic.get(a.ic_number)
+        if s:
+            color = s.color or DUTY_COLORS.get(s.duty_type, "#94a3b8")
+        else:
+            color = "#94a3b8"
         rows.append({
             "ic_number": a.ic_number,
             "name": o.name if o else a.ic_number,
@@ -45,6 +49,7 @@ def assignments_df(
             "duty_type": s.duty_type if s else "?",
             "ward": s.ward if s else None,
             "hours": s.hours if s else 0,
+            "color": color,
         })
     return pd.DataFrame(rows)
 
@@ -70,26 +75,30 @@ def week_grid_figure(df: pd.DataFrame, monday: date) -> go.Figure:
                        aggfunc="first", sort=False)
         .reindex(index=ordered_names, columns=days)
     )
-    duty_pivot = (
-        df.pivot_table(index="name", columns="on_date", values="duty_type",
+    color_pivot = (
+        df.pivot_table(index="name", columns="on_date", values="color",
                        aggfunc="first", sort=False)
         .reindex(index=ordered_names, columns=days)
     )
 
-    # Build a numeric z-matrix from the duty_type so we can color via discrete map.
-    duty_keys = list(DUTY_COLORS.keys())
-    duty_idx = {d: i for i, d in enumerate(duty_keys)}
-    z = duty_pivot.map(lambda d: duty_idx.get(d, -1) if pd.notna(d) else -1).values
+    # Build a colorscale from the unique colors actually present so per-shift
+    # overrides take effect. z indexes into that colorscale.
+    unique_colors = sorted({c for c in color_pivot.values.flatten() if pd.notna(c)})
+    color_idx = {c: i for i, c in enumerate(unique_colors)}
+    z = color_pivot.map(lambda c: color_idx.get(c, -1) if pd.notna(c) else -1).values
 
     text = pivot.fillna("").astype(str).values
-    colorscale = [
-        [i / max(1, len(duty_keys) - 1), DUTY_COLORS[d]] for i, d in enumerate(duty_keys)
-    ]
+    if unique_colors:
+        colorscale = [
+            [i / max(1, len(unique_colors) - 1), c] for i, c in enumerate(unique_colors)
+        ]
+    else:
+        colorscale = [[0, "#f3f4f6"], [1, "#f3f4f6"]]
 
     fig = go.Figure(data=go.Heatmap(
         z=z, x=day_labels, y=list(pivot.index), text=text,
         texttemplate="%{text}", textfont={"size": 15},
-        colorscale=colorscale, zmin=0, zmax=len(duty_keys) - 1,
+        colorscale=colorscale, zmin=0, zmax=max(0, len(unique_colors) - 1),
         showscale=False, hovertemplate="%{y}<br>%{x}<br>%{text}<extra></extra>",
     ))
     fig.update_layout(

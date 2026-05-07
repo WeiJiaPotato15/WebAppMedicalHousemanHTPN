@@ -430,6 +430,7 @@ class DynamoStore(Store):
                 hours=int(it["hours"]),
                 duty_type=it["duty_type"],
                 ward=it.get("ward"),
+                color=it.get("color"),
             ))
         return sorted(out, key=lambda s: s.code)
 
@@ -437,6 +438,7 @@ class DynamoStore(Store):
         self._t(T_SHIFTS).put_item(Item=self._to_item({
             "pk": f"SHIFT#{s.code}", "sk": "MASTER",
             "hours": s.hours, "duty_type": s.duty_type, "ward": s.ward,
+            "color": s.color,
         }))
 
     def delete_shift(self, code):
