@@ -88,15 +88,15 @@ def week_grid_figure(df: pd.DataFrame, monday: date) -> go.Figure:
 
     fig = go.Figure(data=go.Heatmap(
         z=z, x=day_labels, y=list(pivot.index), text=text,
-        texttemplate="%{text}", textfont={"size": 11},
+        texttemplate="%{text}", textfont={"size": 15},
         colorscale=colorscale, zmin=0, zmax=len(duty_keys) - 1,
         showscale=False, hovertemplate="%{y}<br>%{x}<br>%{text}<extra></extra>",
     ))
     fig.update_layout(
-        height=max(220, 32 * len(pivot.index) + 80),
-        margin=dict(l=120, r=10, t=10, b=10),  # comfortable for typical "Dr. Name" labels
-        xaxis=dict(side="top"),
-        yaxis=dict(autorange="reversed"),
+        height=max(260, 40 * len(pivot.index) + 90),
+        margin=dict(l=160, r=10, t=10, b=10),  # comfortable for typical "Dr. Name" labels at the larger font
+        xaxis=dict(side="top", tickfont=dict(size=14)),
+        yaxis=dict(autorange="reversed", tickfont=dict(size=14)),
     )
     return fig
 
