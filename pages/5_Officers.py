@@ -102,7 +102,11 @@ def main() -> None:
         for i, new_row in edited.iterrows():
             old_row = df.iloc[i]
             if not new_row.equals(old_row):
-                store.upsert_officer(Officer(**new_row.to_dict()))
+                # pandas represents empty cells as NaN/NaT (float); Pydantic
+                # rejects those for Optional[str] / Optional[date]. Coerce
+                # missing values to None before constructing the Officer.
+                clean = {k: (None if pd.isna(v) else v) for k, v in new_row.to_dict().items()}
+                store.upsert_officer(Officer(**clean))
                 store.add_audit(AuditEntry(
                     timestamp=now_iso(), actor=user.email, action="upsert_officer",
                     target=f"officer:{new_row['ic_number']}",
