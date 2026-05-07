@@ -263,7 +263,14 @@ def main() -> None:
     if cat_table.empty:
         st.info("No assignments yet to summarize.")
     else:
-        st.dataframe(cat_table, width="stretch")
+        st.dataframe(
+            cat_table.style.map(
+                lambda v: "background-color: #fee2e2; color: #991b1b"
+                if isinstance(v, (int, float)) and v == 0
+                else ""
+            ),
+            width="stretch",
+        )
 
     # ---- Create roster for next week --------------------------------------- #
     next_monday = monday + timedelta(days=7)
