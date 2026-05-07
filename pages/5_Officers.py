@@ -80,11 +80,21 @@ def main() -> None:
     eop_dates = store.list_eop_dates()
     leave_counts = store.list_leave_counts()
     cap = int(safe_secret("app", "leave_cap", 10))
+    today = date.today()
+
+    def _days_in_dept(o: Officer) -> int:
+        # Count from posting_start through whichever ends sooner: today or EOP
+        # (so a past-EOP HO stops accumulating, a still-active HO counts to today).
+        eop = eop_dates.get(o.ic_number)
+        end = min(eop, today) if eop else today
+        return max(0, (end - o.posting_start_date).days)
+
     summary_df = pd.DataFrame([{
         "Name": o.name,
         "Ward": o.ward_group or "—",
         "Posting #": o.posting_number,
         "Posting start": o.posting_start_date,
+        "Days in dept": _days_in_dept(o),
         "EOP date": eop_dates.get(o.ic_number),
         f"MC/EL used (cap {cap})": leave_counts.get(o.ic_number, 0),
     } for o in officers])
@@ -114,7 +124,7 @@ def main() -> None:
                 help="Which medical posting (1st–6th).",
             ),
         },
-        column_order=("ic_number", "name", "ward_group", "posting_number",
+        column_order=("name", "ic_number", "ward_group", "posting_number",
                       "posting_start_date", "phone", "active"),
         width="stretch",
         hide_index=True,
