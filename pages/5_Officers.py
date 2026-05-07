@@ -67,13 +67,24 @@ def main() -> None:
         st.info("No officers yet — add one above.")
         return
 
-    # ---- Bulk edit grid --------------------------------------------------- #
+    # ---- Read-only computed summary (always fresh) ------------------------ #
     eop_dates = store.list_eop_dates()
     leave_counts = store.list_leave_counts()
     cap = int(safe_secret("app", "leave_cap", 10))
+    summary_df = pd.DataFrame([{
+        "Name": o.name,
+        "Ward": o.ward_group or "—",
+        "Posting start": o.posting_start_date,
+        "EOP date": eop_dates.get(o.ic_number),
+        f"MC/EL used (cap {cap})": leave_counts.get(o.ic_number, 0),
+    } for o in officers])
+    st.markdown("##### Computed summary")
+    st.caption("EOP date and MC/EL count are derived live from each HO's roster cells.")
+    st.dataframe(summary_df, hide_index=True, width="stretch")
+
+    # ---- Bulk edit grid (editable fields only) ---------------------------- #
+    st.markdown("##### Edit profiles")
     df = pd.DataFrame([o.model_dump() for o in officers])
-    df["eop_date"] = df["ic_number"].map(lambda ic: eop_dates.get(ic))
-    df["leaves_used"] = df["ic_number"].map(lambda ic: leave_counts.get(ic, 0))
     edited = st.data_editor(
         df,
         column_config={
@@ -87,17 +98,9 @@ def main() -> None:
                 options=[None] + WARD_GROUPS,
                 help="One of W1, W2, W3, W6.",
             ),
-            "eop_date": st.column_config.DateColumn(
-                "EOP date (auto)", disabled=True,
-                help="Earliest date you assigned the EOP shift to this HO. Updates automatically.",
-            ),
-            "leaves_used": st.column_config.NumberColumn(
-                f"MC/EL used (cap {cap})", disabled=True,
-                help=f"Cumulative MC/EL days since posting started. Cap is {cap}.",
-            ),
         },
         column_order=("ic_number", "name", "ward_group", "posting_start_date",
-                      "phone", "active", "eop_date", "leaves_used"),
+                      "phone", "active"),
         width="stretch",
         hide_index=True,
         num_rows="fixed",
