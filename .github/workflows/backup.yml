@@ -1,0 +1,24 @@
+name: daily-backup
+
+on:
+  schedule:
+    # 17:00 UTC = 01:00 MYT — well after the daily roster shake-up
+    - cron: "0 17 * * *"
+  workflow_dispatch:  # allow manual trigger from the Actions tab
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install boto3
+      - name: Run backup
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          HKJ_BACKUP_BUCKET: ${{ secrets.HKJ_BACKUP_BUCKET }}
+        run: python scripts/backup_to_s3.py

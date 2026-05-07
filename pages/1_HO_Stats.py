@@ -1,0 +1,90 @@
+"""Public per-HO self-service stats page. No login required."""
+from __future__ import annotations
+
+from datetime import date
+
+import streamlit as st
+
+from lib.db import get_store
+from lib.viz import (
+    assignments_df,
+    count_leaves,
+    days_in_posting,
+    leave_progress_figure,
+    station_mix_donut,
+    total_hours,
+)
+
+st.set_page_config(page_title="My Stats — HKJ Roster", page_icon="📊", layout="wide")
+
+
+@st.cache_data(ttl=15)
+def _load_for_officer(email: str, start_iso: str, end_iso: str):
+    start, end = date.fromisoformat(start_iso), date.fromisoformat(end_iso)
+    store = get_store()
+    a = store.get_officer_assignments(email, start, end)
+    s = store.list_shifts()
+    o = store.list_officers()
+    return a, s, o
+
+
+def main() -> None:
+    st.title("📊 My Stats")
+    st.caption("Pick your name. No login needed.")
+
+    store = get_store()
+    officers = store.list_officers()
+    if not officers:
+        st.info("No house officers registered yet.")
+        return
+
+    name_to_email = {o.name: o.email for o in officers}
+    pick = st.selectbox("Your name", list(name_to_email.keys()))
+    if not pick:
+        return
+    email = name_to_email[pick]
+    me = next(o for o in officers if o.email == email)
+
+    today = date.today()
+    a, s, o = _load_for_officer(email, me.posting_start_date.isoformat(), today.isoformat())
+    df = assignments_df(a, s, o)
+
+    leaves = count_leaves(df)
+    cap = int(st.secrets.get("app", {}).get("leave_cap", 10)) if hasattr(st, "secrets") else 10
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Days in posting", days_in_posting(me))
+    m2.metric("Hours so far", f"{total_hours(df)} h")
+    m3.metric("EL/MC used", f"{leaves} / {cap}",
+              delta=("OK" if leaves < cap else "AT CAP"),
+              delta_color=("normal" if leaves < cap else "inverse"))
+    m4.metric("Posting started", me.posting_start_date.isoformat())
+
+    if leaves >= cap:
+        st.error(f"You have used {leaves} EL/MC days — at or above the {cap}-day cap. "
+                 "Speak with your leader.")
+    elif leaves >= int(0.8 * cap):
+        st.warning(f"You are approaching the {cap}-day EL/MC cap ({leaves} used).")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.plotly_chart(leave_progress_figure(leaves, cap), use_container_width=True,
+                        config={"displayModeBar": False})
+    with c2:
+        st.plotly_chart(station_mix_donut(df), use_container_width=True,
+                        config={"displayModeBar": False})
+
+    with st.expander("My recent assignments"):
+        if df.empty:
+            st.write("No assignments yet.")
+        else:
+            st.dataframe(
+                df.sort_values("on_date", ascending=False)[
+                    ["on_date", "shift_code", "duty_type", "ward", "hours"]
+                ].reset_index(drop=True),
+                use_container_width=True,
+            )
+
+
+if __name__ == "__main__":
+    main()

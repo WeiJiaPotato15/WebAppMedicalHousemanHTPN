@@ -1,0 +1,70 @@
+# Secrets — NEVER commit these. Streamlit Cloud has its own secrets manager.
+.streamlit/secrets.toml
+.env
+*.pem
+*.key
+aws_credentials*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Test / coverage
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+htmlcov/
+coverage.xml
+*.cover
+
+# IDE — keep .idea? user already committed it; allow but ignore noisy bits.
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/usage.statistics.xml
+.idea/shelf
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Streamlit local cache
+.streamlit/cache
+
+# Backups produced locally
+backups/
+*.dump.json
+
+# Mypy / ruff
+.mypy_cache/
+.ruff_cache/
+
+# Claude Code working directory (plans, agent state) — local only
+.claude/
