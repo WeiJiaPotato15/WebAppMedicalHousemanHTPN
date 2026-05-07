@@ -52,6 +52,16 @@ def overview() -> None:
         st.subheader(f"Week of {week_label(st.session_state.view_monday)}")
 
     a, s, o = _load_week(st.session_state.view_monday.isoformat())
+
+    # Hide drafts from public viewers.
+    if not get_store().is_week_published(st.session_state.view_monday):
+        st.info(
+            "📝 This week's roster is being prepared by the admins and is not "
+            "yet published. Check back soon, or use **Prev**/**Today** to see "
+            "the most recent published week."
+        )
+        return
+
     df = assignments_df(a, s, o)
 
     if not o:

@@ -72,6 +72,13 @@ def main() -> None:
     a, s, o = _load_for_officer(ic_number, me.posting_start_date.isoformat(), today.isoformat())
     df = assignments_df(a, s, o)
 
+    # Hide assignments that fall in unpublished (draft) weeks.
+    unpublished = store.list_unpublished_weeks()
+    if not df.empty and unpublished:
+        def _week_monday(d):
+            return d - timedelta(days=d.weekday())
+        df = df[~df["on_date"].apply(_week_monday).isin(unpublished)]
+
     leaves = count_leaves(df)
     cap = int(safe_secret("app", "leave_cap", 10))
     weekly = weekly_hours_df(df)

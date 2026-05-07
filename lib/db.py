@@ -128,7 +128,22 @@ class Store(ABC):
     def create_week_template(
         self, monday: date, officer_ic_numbers: list[str], actor_email: str
     ) -> None:
-        """Snapshot officer order for `monday`. Idempotent. Writes an audit row."""
+        """Snapshot officer order for `monday`. Created as draft (unpublished).
+        Idempotent. Writes an audit row."""
+
+    @abstractmethod
+    def publish_week(self, monday: date, actor_email: str) -> None:
+        """Mark the week's template as published. No-op if no template exists
+        (weeks without templates are implicitly published — backward compat)."""
+
+    @abstractmethod
+    def list_unpublished_weeks(self) -> set[date]:
+        """Return the set of Mondays whose template is currently a draft."""
+
+    def is_week_published(self, monday: date) -> bool:
+        """A week is published if it has no template (legacy / direct edits)
+        OR its template's is_published flag is True."""
+        return monday not in self.list_unpublished_weeks()
 
     def has_week_data(self, monday: date) -> bool:
         if self.get_week_template(monday) is not None:
@@ -163,7 +178,8 @@ class MemoryStore(Store):
         self._officers: dict[str, Officer] = {}  # keyed by ic_number
         self._shifts: dict[str, Shift] = {}
         self._roster: dict[tuple[str, date], Assignment] = {}  # (ic_number, date) -> Assignment
-        self._templates: dict[date, list[str]] = {}  # monday -> [ic_numbers]
+        # monday -> {"ic_numbers": [...], "is_published": bool}
+        self._templates: dict[date, dict] = {}
         self._admins: dict[str, Admin] = {}  # keyed by email
         self._audit: dict[str, list[AuditEntry]] = defaultdict(list)
         self._seeded = False
@@ -266,15 +282,35 @@ class MemoryStore(Store):
 
     # Week templates
     def get_week_template(self, monday):
-        return list(self._templates[monday]) if monday in self._templates else None
+        rec = self._templates.get(monday)
+        return list(rec["ic_numbers"]) if rec else None
 
     def create_week_template(self, monday, officer_ic_numbers, actor_email):
-        self._templates[monday] = list(officer_ic_numbers)
+        self._templates[monday] = {
+            "ic_numbers": list(officer_ic_numbers),
+            "is_published": False,
+        }
         self.add_audit(AuditEntry(
             timestamp=now_iso(), actor=actor_email, action="create_week_template",
             target=f"week:{monday.isoformat()}",
-            before=None, after=f"{len(officer_ic_numbers)} officers",
+            before=None, after=f"{len(officer_ic_numbers)} officers (draft)",
         ))
+
+    def publish_week(self, monday, actor_email):
+        rec = self._templates.get(monday)
+        if rec is None:
+            return  # no template = legacy, already implicitly published
+        if rec.get("is_published"):
+            return  # already published
+        rec["is_published"] = True
+        self.add_audit(AuditEntry(
+            timestamp=now_iso(), actor=actor_email, action="publish_week",
+            target=f"week:{monday.isoformat()}",
+            before="draft", after="published",
+        ))
+
+    def list_unpublished_weeks(self):
+        return {m for m, rec in self._templates.items() if not rec.get("is_published")}
 
     # EOP — direct dict scan
     def list_eop_dates(self):
@@ -520,14 +556,54 @@ class DynamoStore(Store):
             "pk": f"WEEK#{monday.isoformat()}",
             "sk": "TEMPLATE",
             "officer_ic_numbers": list(officer_ic_numbers),
+            "is_published": False,
             "created_by": actor_email,
             "created_at": now_iso(),
         })
         self.add_audit(AuditEntry(
             timestamp=now_iso(), actor=actor_email, action="create_week_template",
             target=f"week:{monday.isoformat()}",
-            before=None, after=f"{len(officer_ic_numbers)} officers",
+            before=None, after=f"{len(officer_ic_numbers)} officers (draft)",
         ))
+
+    def publish_week(self, monday, actor_email):
+        key = {"pk": f"WEEK#{monday.isoformat()}", "sk": "TEMPLATE"}
+        existing = self._t(T_ROSTER).get_item(Key=key).get("Item")
+        if not existing:
+            return  # legacy week with no template, already implicit-published
+        if existing.get("is_published"):
+            return
+        self._t(T_ROSTER).update_item(
+            Key=key,
+            UpdateExpression="SET is_published = :p, published_at = :t, published_by = :a",
+            ExpressionAttributeValues={
+                ":p": True, ":t": now_iso(), ":a": actor_email,
+            },
+        )
+        self.add_audit(AuditEntry(
+            timestamp=now_iso(), actor=actor_email, action="publish_week",
+            target=f"week:{monday.isoformat()}",
+            before="draft", after="published",
+        ))
+
+    def list_unpublished_weeks(self):
+        from boto3.dynamodb.conditions import Attr
+        # Scan only the TEMPLATE rows.
+        resp = self._t(T_ROSTER).scan(
+            FilterExpression=Attr("sk").eq("TEMPLATE"),
+        )
+        out: set[date] = set()
+        for it in resp.get("Items", []):
+            pk = it.get("pk", "")
+            if not pk.startswith("WEEK#"):
+                continue
+            if it.get("is_published") is True:
+                continue
+            try:
+                out.add(date.fromisoformat(pk.split("#", 1)[1]))
+            except ValueError:
+                continue
+        return out
 
     # EOP — single scan + Python-side filter (table is small)
     def list_eop_dates(self):

@@ -64,7 +64,9 @@ def main() -> None:
         st.session_state.edit_monday = week_start(date.today())
     monday = st.session_state.edit_monday
     week_sunday = monday + timedelta(days=6)
-    clabel.subheader(f"Week of {week_label(monday)}")
+    is_published = get_store().is_week_published(monday)
+    badge = "" if is_published else "  📝 DRAFT — not visible to public"
+    clabel.subheader(f"Week of {week_label(monday)}{badge}")
 
     store = get_store()
     all_officers = store.list_officers()
@@ -222,6 +224,21 @@ def main() -> None:
             )
         st.cache_data.clear()
         st.rerun()
+
+    # ---- Publish (only when current view is a draft) ----------------------- #
+    if not is_published and store.get_week_template(monday) is not None:
+        st.divider()
+        cl, cr = st.columns([4, 2])
+        cl.warning(
+            "📝 This week is a **draft** — the public roster page will not show "
+            "it until you publish."
+        )
+        if cr.button("✅ Publish this week", type="primary",
+                     key=f"publish_{monday.isoformat()}"):
+            store.publish_week(monday=monday, actor_email=user.email)
+            st.cache_data.clear()
+            st.toast(f"Published {week_label(monday)}.", icon="📢")
+            st.rerun()
 
     # ---- Duty-type colour legend (same as the public Overview) ------------ #
     with st.expander("Legend (duty types)"):
