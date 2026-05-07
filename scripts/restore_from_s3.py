@@ -4,7 +4,7 @@ DESTRUCTIVE: overwrites items with the backed-up versions. Use after a bad write
 or accidental mass change. Always make a fresh backup before restoring.
 
 Usage:
-    HKJ_BACKUP_BUCKET=hkj-roster-backups \
+    HTPN_BACKUP_BUCKET=htpn-roster-backups \
     python scripts/restore_from_s3.py 2026-05-06
 """
 from __future__ import annotations
@@ -17,8 +17,8 @@ import sys
 import boto3
 
 REGION = os.getenv("AWS_REGION", "ap-southeast-1")
-BUCKET = os.getenv("HKJ_BACKUP_BUCKET", "hkj-roster-backups")
-TABLES = ("hkj_roster", "hkj_officers", "hkj_shifts", "hkj_admins", "hkj_audit")
+BUCKET = os.getenv("HTPN_BACKUP_BUCKET", "htpn-roster-backups")
+TABLES = ("htpn_roster", "htpn_officers", "htpn_shifts", "htpn_admins", "htpn_audit")
 
 
 def main() -> int:

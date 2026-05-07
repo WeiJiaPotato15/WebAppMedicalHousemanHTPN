@@ -5,7 +5,7 @@ import streamlit as st
 
 from lib.auth import claim_bootstrap_if_eligible, current_user, login_button, logout_button
 
-st.set_page_config(page_title="Admin Login — HKJ Roster", page_icon="🔐", layout="centered")
+st.set_page_config(page_title="Admin Login — HTPN Roster", page_icon="🔐", layout="centered")
 
 
 def main() -> None:

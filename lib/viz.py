@@ -119,21 +119,22 @@ def staff_per_station_per_day_figure(df: pd.DataFrame, min_per_ward: int = 1) ->
     return fig
 
 
-HOURS_WARN = 60   # yellow band 61-64
-HOURS_LIMIT = 64  # red over 64
+HOURS_LOW = 60    # below this = under-utilized (yellow)
+HOURS_HIGH = 64   # above this = over cap (red); 60-64 is the accepted band
 
 
 def _hours_color(h: int) -> str:
-    if h > HOURS_LIMIT:
-        return "#ef4444"  # red
-    if h > HOURS_WARN:
-        return "#f59e0b"  # amber
-    return "#0ea5e9"      # sky
+    if h > HOURS_HIGH:
+        return "#ef4444"  # red — over cap
+    if h < HOURS_LOW:
+        return "#f59e0b"  # amber — too few hours
+    return "#0ea5e9"      # sky — within accepted band
 
 
 def hours_per_staff_figure(df: pd.DataFrame) -> go.Figure:
     """Horizontal bar chart of weekly hours per HO. Bars colored by threshold:
-    blue ≤60, amber 61-64, red >64. A dotted line marks the 64h cap."""
+    blue 60-64 (accepted), amber <60 (too few), red >64 (over cap). Dotted
+    lines mark both bounds of the accepted band."""
     if df.empty:
         return go.Figure().update_layout(title="No data")
     by_staff = df.groupby("name", as_index=False)["hours"].sum().sort_values("hours", ascending=True)
@@ -143,8 +144,10 @@ def hours_per_staff_figure(df: pd.DataFrame) -> go.Figure:
         marker_color=by_staff["color"],
         text=by_staff["hours"], textposition="outside",
     ))
-    fig.add_vline(x=HOURS_LIMIT, line_dash="dot", line_color="#dc2626",
-                  annotation_text=f"{HOURS_LIMIT}h cap", annotation_position="top right")
+    fig.add_vline(x=HOURS_LOW, line_dash="dot", line_color="#92400e",
+                  annotation_text=f"{HOURS_LOW}h target", annotation_position="bottom right")
+    fig.add_vline(x=HOURS_HIGH, line_dash="dot", line_color="#dc2626",
+                  annotation_text=f"{HOURS_HIGH}h cap", annotation_position="top right")
     fig.update_layout(
         title="Working hours this period",
         xaxis_title="Hours", yaxis_title=None,

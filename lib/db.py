@@ -21,11 +21,11 @@ from .models import Admin, Assignment, AuditEntry, Officer, Shift
 
 # ---- Table names ---------------------------------------------------------- #
 
-T_ROSTER = "hkj_roster"
-T_OFFICERS = "hkj_officers"
-T_SHIFTS = "hkj_shifts"
-T_ADMINS = "hkj_admins"
-T_AUDIT = "hkj_audit"
+T_ROSTER = "htpn_roster"
+T_OFFICERS = "htpn_officers"
+T_SHIFTS = "htpn_shifts"
+T_ADMINS = "htpn_admins"
+T_AUDIT = "htpn_audit"
 ALL_TABLES = (T_ROSTER, T_OFFICERS, T_SHIFTS, T_ADMINS, T_AUDIT)
 
 
@@ -459,7 +459,7 @@ class DynamoStore(Store):
             "after": entry.after,
         }))
 
-    # Week templates — stored in hkj_roster under pk=WEEK#<monday>, sk=TEMPLATE.
+    # Week templates — stored in htpn_roster under pk=WEEK#<monday>, sk=TEMPLATE.
     # The week-assignment scan filters sk by ISO date range, so these rows are
     # invisible to that path even though they share the table.
     def get_week_template(self, monday):

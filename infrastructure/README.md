@@ -3,8 +3,8 @@
 You need a free-tier AWS account. After this you should have:
 
 - 5 DynamoDB tables in `ap-southeast-1` (Singapore), provisioned at 5 RCU / 5 WCU each (total 25/25 — fully inside the always-free tier).
-- 1 IAM user `hkj-roster-app` with the policy in `iam_policy.json` (least privilege).
-- 1 S3 bucket `hkj-roster-backups` (versioning enabled).
+- 1 IAM user `htpn-roster-app` with the policy in `iam_policy.json` (least privilege).
+- 1 S3 bucket `htpn-roster-backups` (versioning enabled).
 - 1 AWS Budget alarm at USD 1/month, emailing you if anything ever charges.
 
 ## 0. Prerequisites
@@ -18,9 +18,9 @@ For the long-term IAM key (used by the app), do not use root. Create the dedicat
 
 ## 1. IAM user for the app
 
-In the AWS console: **IAM → Users → Create user `hkj-roster-app`**, then:
+In the AWS console: **IAM → Users → Create user `htpn-roster-app`**, then:
 
-- Attach policy → **Create policy** → JSON → paste `iam_policy.json` → name it `hkj-roster-app-policy`.
+- Attach policy → **Create policy** → JSON → paste `iam_policy.json` → name it `htpn-roster-app-policy`.
 - Create access key (Application running outside AWS) → save the `Access key ID` and `Secret access key`. **Paste these into Streamlit Cloud's Secrets UI under `[aws]`** — never into the repo.
 
 ## 2. Create the DynamoDB tables
@@ -35,9 +35,9 @@ Idempotent — re-running skips tables that already exist.
 ## 3. Create the S3 backup bucket
 
 ```bash
-aws s3 mb s3://hkj-roster-backups --region ap-southeast-1
+aws s3 mb s3://htpn-roster-backups --region ap-southeast-1
 aws s3api put-bucket-versioning \
-  --bucket hkj-roster-backups \
+  --bucket htpn-roster-backups \
   --versioning-configuration Status=Enabled
 ```
 
@@ -52,8 +52,8 @@ You'll get an email asking you to confirm the SNS subscription — click it.
 ## 5. Verify
 
 - DynamoDB console → Tables: 5 tables visible, status ACTIVE, all in `ap-southeast-1`.
-- IAM → Users → `hkj-roster-app` → Permissions: only `hkj-roster-app-policy` attached.
-- S3 → Buckets: `hkj-roster-backups` exists.
+- IAM → Users → `htpn-roster-app` → Permissions: only `htpn-roster-app-policy` attached.
+- S3 → Buckets: `htpn-roster-backups` exists.
 - Billing → Budgets: 1 budget at USD 1.00, notifies your email.
 
 ## Cost guarantee
@@ -69,9 +69,9 @@ a bot hammering the public roster page can at most cause **throttled requests** 
 ## Tearing down
 
 ```bash
-for t in hkj_roster hkj_officers hkj_shifts hkj_admins hkj_audit; do
+for t in htpn_roster htpn_officers htpn_shifts htpn_admins htpn_audit; do
   aws dynamodb delete-table --table-name "$t" --region ap-southeast-1
 done
-aws s3 rb s3://hkj-roster-backups --force --region ap-southeast-1
-aws budgets delete-budget --account-id $(aws sts get-caller-identity --query Account --output text) --budget-name hkj-roster-monthly-1usd
+aws s3 rb s3://htpn-roster-backups --force --region ap-southeast-1
+aws budgets delete-budget --account-id $(aws sts get-caller-identity --query Account --output text) --budget-name htpn-roster-monthly-1usd
 ```

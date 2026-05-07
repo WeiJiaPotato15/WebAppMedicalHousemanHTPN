@@ -1,6 +1,6 @@
 """One-shot importer: pull a Google Sheets weekly tab (CSV export) into the roster table.
 
-The current Hospital Kajang sheet is publicly viewable, so we read it as CSV via:
+The current Hospital Tengku Permaisuri Norashikin sheet is publicly viewable, so we read it as CSV via:
 
     https://docs.google.com/spreadsheets/d/<SHEET_ID>/export?format=csv&gid=<TAB_ID>
 

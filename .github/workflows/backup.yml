@@ -20,5 +20,5 @@ jobs:
           AWS_REGION: ${{ secrets.AWS_REGION }}
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          HKJ_BACKUP_BUCKET: ${{ secrets.HKJ_BACKUP_BUCKET }}
+          HTPN_BACKUP_BUCKET: ${{ secrets.HTPN_BACKUP_BUCKET }}
         run: python scripts/backup_to_s3.py

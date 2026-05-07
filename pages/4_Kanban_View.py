@@ -18,7 +18,7 @@ from lib.constants import DUTY_COLORS, week_dates, week_label, week_start
 from lib.db import get_store
 from lib.presence import beat, render_sidebar
 
-st.set_page_config(page_title="Kanban — HKJ", page_icon="🎯", layout="wide")
+st.set_page_config(page_title="Kanban — HTPN", page_icon="🎯", layout="wide")
 PAGE_NAME = "Kanban"
 
 

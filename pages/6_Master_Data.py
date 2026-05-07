@@ -1,6 +1,6 @@
 """Admin: edit the shift code dictionary (Shift, Hours, Duty_Type, Ward).
 
-Seeded with the 37 codes from the Hospital Kajang Grouping sheet at first deploy.
+Seeded with the 37 codes from the Hospital Tengku Permaisuri Norashikin Grouping sheet at first deploy.
 Editable here so the leader can introduce, rename, or retire codes without a redeploy.
 """
 from __future__ import annotations
@@ -13,7 +13,7 @@ from lib.constants import SEED_SHIFTS, now_iso
 from lib.db import get_store
 from lib.models import AuditEntry, Shift
 
-st.set_page_config(page_title="Master Data — HKJ", page_icon="⚙️", layout="wide")
+st.set_page_config(page_title="Master Data — HTPN", page_icon="⚙️", layout="wide")
 
 
 def main() -> None:

@@ -15,11 +15,11 @@
         "dynamodb:BatchWriteItem"
       ],
       "Resource": [
-        "arn:aws:dynamodb:*:*:table/hkj_roster",
-        "arn:aws:dynamodb:*:*:table/hkj_officers",
-        "arn:aws:dynamodb:*:*:table/hkj_shifts",
-        "arn:aws:dynamodb:*:*:table/hkj_admins",
-        "arn:aws:dynamodb:*:*:table/hkj_audit"
+        "arn:aws:dynamodb:*:*:table/htpn_roster",
+        "arn:aws:dynamodb:*:*:table/htpn_officers",
+        "arn:aws:dynamodb:*:*:table/htpn_shifts",
+        "arn:aws:dynamodb:*:*:table/htpn_admins",
+        "arn:aws:dynamodb:*:*:table/htpn_audit"
       ]
     },
     {
@@ -32,8 +32,8 @@
         "s3:ListBucket"
       ],
       "Resource": [
-        "arn:aws:s3:::hkj-roster-backups",
-        "arn:aws:s3:::hkj-roster-backups/*"
+        "arn:aws:s3:::htpn-roster-backups",
+        "arn:aws:s3:::htpn-roster-backups/*"
       ]
     }
   ]

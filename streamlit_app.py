@@ -27,11 +27,11 @@ def _load_week(monday_iso: str):
 def overview() -> None:
     """Public read-only weekly roster grid."""
     st.set_page_config(
-        page_title="HKJ Medical HO Roster",
+        page_title="HTPN Medical HO Roster",
         page_icon="🏥",
         layout="wide",
     )
-    st.title("🏥 Medical Houseman Roster — Hospital Kajang")
+    st.title("🏥 Medical Houseman Roster — Hospital Tengku Permaisuri Norashikin")
     st.caption("Read-only public view. Updated live as the leader edits.")
 
     if "view_monday" not in st.session_state:

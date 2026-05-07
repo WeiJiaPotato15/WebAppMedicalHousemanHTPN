@@ -17,14 +17,14 @@ from lib.constants import safe_secret, week_dates, week_label, week_start
 from lib.db import get_store
 from lib.presence import beat, render_sidebar
 from lib.viz import (
-    HOURS_LIMIT,
-    HOURS_WARN,
+    HOURS_HIGH,
+    HOURS_LOW,
     assignments_df,
     hours_per_staff_figure,
     staff_per_station_per_day_figure,
 )
 
-st.set_page_config(page_title="Edit Roster — HKJ", page_icon="📝", layout="wide")
+st.set_page_config(page_title="Edit Roster — HTPN", page_icon="📝", layout="wide")
 PAGE_NAME = "Edit Roster"
 
 
@@ -130,9 +130,10 @@ def main() -> None:
         st.cache_data.clear()
         st.rerun()
 
-    # ---- Hours summary with over-cap highlighting -------------------------- #
+    # ---- Hours summary with under-/over-band highlighting ------------------ #
     summary_rows = []
     for _, r in edited.iterrows():
+        filled = sum(1 for c in day_cols if r[c])
         total = sum(
             shifts_by_code[r[c]].hours
             for c in day_cols
@@ -142,35 +143,44 @@ def main() -> None:
             "Ward": r.get("ward", "—"),
             "Name": r["name"],
             "Hours": int(total),
+            "_filled": filled,
         })
     summary = pd.DataFrame(summary_rows)
-    over = summary[summary["Hours"] > HOURS_LIMIT]
-    warn = summary[(summary["Hours"] > HOURS_WARN) & (summary["Hours"] <= HOURS_LIMIT)]
+
+    over = summary[summary["Hours"] > HOURS_HIGH]
+    # "Under" only counts rows that have at least one shift assigned —
+    # all-blank rows on a fresh week shouldn't all flash yellow.
+    under = summary[(summary["Hours"] < HOURS_LOW) & (summary["_filled"] > 0)]
 
     if not over.empty:
         st.error(
-            f"⚠️ **{len(over)} HO(s) over the {HOURS_LIMIT}h cap this week**: "
+            f"⚠️ **{len(over)} HO(s) over the {HOURS_HIGH}h cap**: "
             + ", ".join(f"{n} ({h}h)" for n, h in zip(over["Name"], over["Hours"]))
         )
-    elif not warn.empty:
+    if not under.empty:
         st.warning(
-            f"⚠️ {len(warn)} HO(s) in the {HOURS_WARN+1}-{HOURS_LIMIT}h band: "
-            + ", ".join(f"{n} ({h}h)" for n, h in zip(warn["Name"], warn["Hours"]))
+            f"⚠️ {len(under)} HO(s) under the {HOURS_LOW}h target: "
+            + ", ".join(f"{n} ({h}h)" for n, h in zip(under["Name"], under["Hours"]))
         )
 
-    st.caption("**Hours summary** — yellow = approaching cap, red = over cap.")
+    st.caption(
+        f"**Hours summary** — yellow = under {HOURS_LOW}h (too few), "
+        f"red = over {HOURS_HIGH}h. {HOURS_LOW}-{HOURS_HIGH}h is the accepted band."
+    )
 
     def _highlight(row):
         h = row["Hours"]
-        if h > HOURS_LIMIT:
+        if h > HOURS_HIGH:
             return ["background-color: #fee2e2; color: #991b1b; font-weight: 600"] * len(row)
-        if h > HOURS_WARN:
+        if h < HOURS_LOW and row["_filled"] > 0:
             return ["background-color: #fef3c7; color: #92400e"] * len(row)
         return [""] * len(row)
 
+    # _filled is hidden from display but kept on the row for the highlight rule.
     st.dataframe(
         summary.style.apply(_highlight, axis=1),
         hide_index=True,
+        column_order=("Ward", "Name", "Hours"),
         width="stretch",
     )
 

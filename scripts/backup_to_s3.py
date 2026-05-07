@@ -5,7 +5,7 @@ Object key: backups/<YYYY-MM-DD>/<table>.json
 
 Usage:
     AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... \
-    HKJ_BACKUP_BUCKET=hkj-roster-backups \
+    HTPN_BACKUP_BUCKET=htpn-roster-backups \
     python scripts/backup_to_s3.py
 """
 from __future__ import annotations
@@ -20,8 +20,8 @@ import boto3
 from botocore.exceptions import ClientError
 
 REGION = os.getenv("AWS_REGION", "ap-southeast-1")
-BUCKET = os.getenv("HKJ_BACKUP_BUCKET", "hkj-roster-backups")
-TABLES = ("hkj_roster", "hkj_officers", "hkj_shifts", "hkj_admins", "hkj_audit")
+BUCKET = os.getenv("HTPN_BACKUP_BUCKET", "htpn-roster-backups")
+TABLES = ("htpn_roster", "htpn_officers", "htpn_shifts", "htpn_admins", "htpn_audit")
 
 
 def _decimal_default(o):

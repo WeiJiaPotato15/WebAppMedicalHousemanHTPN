@@ -1,4 +1,4 @@
-"""Seed the hkj_shifts table with the 37 codes from the Hospital Kajang Grouping sheet.
+"""Seed the htpn_shifts table with the 37 codes from the Hospital Tengku Permaisuri Norashikin Grouping sheet.
 
 Idempotent: re-running upserts the same rows. Safe to use as a "reset to defaults"
 button — it does not delete codes you've added; it only writes the seed set.

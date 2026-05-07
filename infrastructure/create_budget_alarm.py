@@ -14,7 +14,7 @@ import sys
 import boto3
 from botocore.exceptions import ClientError
 
-BUDGET_NAME = "hkj-roster-monthly-1usd"
+BUDGET_NAME = "htpn-roster-monthly-1usd"
 
 
 def main() -> int:

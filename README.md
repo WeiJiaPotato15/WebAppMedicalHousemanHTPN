@@ -1,6 +1,6 @@
-# Hospital Kajang Medical Houseman Roster
+# Hospital Tengku Permaisuri Norashikin Medical Houseman Roster
 
-A web app that replaces the Google Sheet currently used by the Medical Department of Hospital Kajang to manage its weekly House Officer (HO) roster. Built for one HO leader to arrange the roster, multiple admins to amend it under sudden change, and every HO to see their schedule and posting stats without logging in.
+A web app that replaces the Google Sheet currently used by the Medical Department of Hospital Tengku Permaisuri Norashikin to manage its weekly House Officer (HO) roster. Built for one HO leader to arrange the roster, multiple admins to amend it under sudden change, and every HO to see their schedule and posting stats without logging in.
 
 > Public read-only roster view + Google-OAuth-gated admin editor + Plotly visualizations + AWS DynamoDB backend, hosted free on Streamlit Community Cloud.
 
@@ -29,8 +29,8 @@ A web app that replaces the Google Sheet currently used by the Medical Departmen
                │ st.login("google")    │ boto3
                ▼                       ▼
         Google OAuth            AWS DynamoDB (free tier)
-        (authorized emails)     hkj_roster, hkj_officers,
-                                hkj_shifts, hkj_admins, hkj_audit
+        (authorized emails)     htpn_roster, htpn_officers,
+                                htpn_shifts, htpn_admins, htpn_audit
                                         │
                                         │ daily cron (GitHub Actions)
                                         ▼
@@ -83,12 +83,12 @@ Follow `infrastructure/README.md`. Summary:
 ```bash
 aws configure   # paste a temporary admin key
 python infrastructure/create_tables.py        # creates 5 tables, provisioned 5/5 RCU/WCU each
-aws s3 mb s3://hkj-roster-backups --region ap-southeast-1
-aws s3api put-bucket-versioning --bucket hkj-roster-backups --versioning-configuration Status=Enabled
+aws s3 mb s3://htpn-roster-backups --region ap-southeast-1
+aws s3api put-bucket-versioning --bucket htpn-roster-backups --versioning-configuration Status=Enabled
 AWS_BUDGET_EMAIL=you@example.com python infrastructure/create_budget_alarm.py
 ```
 
-Then in the AWS console: IAM → create user `hkj-roster-app` with the policy in `infrastructure/iam_policy.json`. Save its access key and secret — these go into Streamlit Cloud's Secrets UI, never into the repo.
+Then in the AWS console: IAM → create user `htpn-roster-app` with the policy in `infrastructure/iam_policy.json`. Save its access key and secret — these go into Streamlit Cloud's Secrets UI, never into the repo.
 
 ### 2. Google OAuth (for admin login)
 
@@ -117,11 +117,11 @@ server_metadata_url = "https://accounts.google.com/.well-known/openid-configurat
 
 [aws]
 region = "ap-southeast-1"
-access_key_id = "<from IAM user hkj-roster-app>"
-secret_access_key = "<from IAM user hkj-roster-app>"
+access_key_id = "<from IAM user htpn-roster-app>"
+secret_access_key = "<from IAM user htpn-roster-app>"
 
 [backup]
-s3_bucket = "hkj-roster-backups"
+s3_bucket = "htpn-roster-backups"
 
 [app]
 disable_bootstrap = false
@@ -166,7 +166,7 @@ In the GitHub repo → **Settings → Secrets and variables → Actions**, add:
 
 - `AWS_REGION` = `ap-southeast-1`
 - `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` — same IAM key as Streamlit Cloud
-- `HKJ_BACKUP_BUCKET` = `hkj-roster-backups`
+- `HTPN_BACKUP_BUCKET` = `htpn-roster-backups`
 
 Daily cron `.github/workflows/backup.yml` runs at 01:00 MYT and uploads JSON dumps of every table.
 
@@ -190,12 +190,12 @@ Edit `[app] leave_cap` in Streamlit Cloud's Secrets UI; restart the app from the
 
 ```bash
 python scripts/restore_from_s3.py 2026-05-06            # all tables
-python scripts/restore_from_s3.py 2026-05-06 --only hkj_roster
+python scripts/restore_from_s3.py 2026-05-06 --only htpn_roster
 ```
 
 ### Rotating IAM keys
 
-Create a new access key for `hkj-roster-app` in IAM → paste into Streamlit Cloud secrets → restart app → delete the old key in IAM. Do the same in GitHub Actions secrets.
+Create a new access key for `htpn-roster-app` in IAM → paste into Streamlit Cloud secrets → restart app → delete the old key in IAM. Do the same in GitHub Actions secrets.
 
 ## Cost
 
@@ -228,4 +228,4 @@ If you discover a vulnerability, do not file a public GitHub issue — email the
 
 ## License
 
-Internal use, Hospital Kajang Medical Department. Code is open for inspection but not licensed for redistribution without permission from the bootstrap super-admin.
+Internal use, Hospital Tengku Permaisuri Norashikin Medical Department. Code is open for inspection but not licensed for redistribution without permission from the bootstrap super-admin.

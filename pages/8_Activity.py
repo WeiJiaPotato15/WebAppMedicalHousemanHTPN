@@ -9,7 +9,7 @@ import streamlit as st
 from lib.auth import require_admin
 from lib.db import get_store
 
-st.set_page_config(page_title="Activity — HKJ", page_icon="📜", layout="wide")
+st.set_page_config(page_title="Activity — HTPN", page_icon="📜", layout="wide")
 
 
 def main() -> None:

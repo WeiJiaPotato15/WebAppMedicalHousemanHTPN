@@ -19,7 +19,7 @@ from lib.viz import (
     total_hours,
 )
 
-st.set_page_config(page_title="My Stats — HKJ Roster", page_icon="📊", layout="wide")
+st.set_page_config(page_title="My Stats — HTPN Roster", page_icon="📊", layout="wide")
 
 
 @st.cache_data(ttl=15)

@@ -11,7 +11,7 @@ from lib.constants import now_iso
 from lib.db import get_store
 from lib.models import AuditEntry, Officer
 
-st.set_page_config(page_title="Officers — HKJ", page_icon="👥", layout="wide")
+st.set_page_config(page_title="Officers — HTPN", page_icon="👥", layout="wide")
 
 
 def main() -> None:

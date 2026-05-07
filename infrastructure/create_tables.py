@@ -21,11 +21,11 @@ DEFAULT_REGION = os.getenv("AWS_REGION", "ap-southeast-1")
 
 # (table_name, partition_key, sort_key)
 TABLES: list[tuple[str, str, str]] = [
-    ("hkj_roster", "pk", "sk"),     # pk=HO#<email>, sk=<YYYY-MM-DD>
-    ("hkj_officers", "pk", "sk"),   # pk=HO#<email>, sk="PROFILE"
-    ("hkj_shifts", "pk", "sk"),     # pk=SHIFT#<code>, sk="MASTER"
-    ("hkj_admins", "pk", "sk"),     # pk=ADMIN#<email>, sk="MASTER"
-    ("hkj_audit", "pk", "sk"),      # pk=AUDIT#<YYYY-MM>, sk=<ts>#<actor>
+    ("htpn_roster", "pk", "sk"),     # pk=HO#<email>, sk=<YYYY-MM-DD>
+    ("htpn_officers", "pk", "sk"),   # pk=HO#<email>, sk="PROFILE"
+    ("htpn_shifts", "pk", "sk"),     # pk=SHIFT#<code>, sk="MASTER"
+    ("htpn_admins", "pk", "sk"),     # pk=ADMIN#<email>, sk="MASTER"
+    ("htpn_audit", "pk", "sk"),      # pk=AUDIT#<YYYY-MM>, sk=<ts>#<actor>
 ]
 
 # Note on capacity: Free tier is 25 RCU + 25 WCU shared across the account.
@@ -33,7 +33,7 @@ TABLES: list[tuple[str, str, str]] = [
 PER_TABLE_RCU = 5
 PER_TABLE_WCU = 5
 
-TAGS = [{"Key": "Project", "Value": "hkj-roster"}]
+TAGS = [{"Key": "Project", "Value": "htpn-roster"}]
 
 
 def existing_tables(client) -> set[str]:

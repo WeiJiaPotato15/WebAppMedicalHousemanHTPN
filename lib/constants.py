@@ -26,7 +26,7 @@ DUTY_COLORS: dict[str, str] = {
 }
 
 
-# Seed list — exactly the 37 codes from the Hospital Kajang Grouping sheet.
+# Seed list — exactly the 37 codes from the Hospital Tengku Permaisuri Norashikin Grouping sheet.
 SEED_SHIFTS: list[dict] = [
     {"code": "AL", "hours": 0, "duty_type": "AL", "ward": None},
     {"code": "EH W1", "hours": 14, "duty_type": "EH", "ward": "W1"},

@@ -8,7 +8,7 @@ from lib.constants import now_iso
 from lib.db import get_store
 from lib.models import Admin, AuditEntry
 
-st.set_page_config(page_title="Admins — HKJ", page_icon="🛡️", layout="centered")
+st.set_page_config(page_title="Admins — HTPN", page_icon="🛡️", layout="centered")
 
 
 def main() -> None:
