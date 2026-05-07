@@ -20,6 +20,7 @@ from streamlit_autorefresh import st_autorefresh
 from lib.auth import require_admin
 from lib.constants import (
     CRITICAL_COVERAGE_CATEGORIES,
+    DUTY_COLORS,
     WEEKEND_OK_CATEGORIES,
     safe_secret,
     week_dates,
@@ -176,19 +177,25 @@ def main() -> None:
     # Diff and persist
     if not edited.equals(grid):
         saved = 0
-        blocked: list[str] = []
+        blocked_pre: list[str] = []
+        blocked_post: list[str] = []
         for i, row in edited.iterrows():
             ic = row["ic_number"]
             name = row["name"]
+            posting_start = by_ic[ic].posting_start_date if ic in by_ic else None
             eop = effective_eop(ic)
             for d, dlabel in zip(days, day_cols):
                 new = (row[dlabel] or "") if pd.notna(row[dlabel]) else ""
                 old = grid.at[i, dlabel] if dlabel in grid.columns else ""
                 if new == old:
                     continue
+                # Reject non-empty writes to cells before the HO's posting starts
+                if new and posting_start is not None and d < posting_start:
+                    blocked_pre.append(f"{name} on {d.strftime('%a %d/%m')} ({new})")
+                    continue
                 # Reject non-empty writes to cells strictly after the effective EOP
                 if new and eop is not None and d > eop:
-                    blocked.append(f"{name} on {d.strftime('%a %d/%m')} ({new})")
+                    blocked_post.append(f"{name} on {d.strftime('%a %d/%m')} ({new})")
                     continue
                 store.set_assignment(
                     ic_number=ic,
@@ -199,15 +206,33 @@ def main() -> None:
                 saved += 1
         if saved:
             st.toast(f"Saved {saved} change(s).", icon="✅")
-        if blocked:
+        if blocked_pre:
             st.warning(
-                f"Blocked {len(blocked)} write(s) to cells after EOP — once an HO is "
-                f"marked end-of-posting, later days are locked. Rejected: "
-                + "; ".join(blocked[:5])
-                + (f"; +{len(blocked)-5} more" if len(blocked) > 5 else "")
+                f"Blocked {len(blocked_pre)} write(s) before posting start — that HO "
+                f"hasn't joined yet. Rejected: "
+                + "; ".join(blocked_pre[:5])
+                + (f"; +{len(blocked_pre)-5} more" if len(blocked_pre) > 5 else "")
+            )
+        if blocked_post:
+            st.warning(
+                f"Blocked {len(blocked_post)} write(s) to cells after EOP — once an HO "
+                f"is marked end-of-posting, later days are locked. Rejected: "
+                + "; ".join(blocked_post[:5])
+                + (f"; +{len(blocked_post)-5} more" if len(blocked_post) > 5 else "")
             )
         st.cache_data.clear()
         st.rerun()
+
+    # ---- Duty-type colour legend (same as the public Overview) ------------ #
+    with st.expander("Legend (duty types)"):
+        cols = st.columns(4)
+        for i, (k, v) in enumerate(DUTY_COLORS.items()):
+            with cols[i % 4]:
+                st.markdown(
+                    f"<span style='display:inline-block;width:14px;height:14px;background:{v};"
+                    f"border-radius:3px;margin-right:6px;'></span>{k}",
+                    unsafe_allow_html=True,
+                )
 
     # ---- Hours summary with under-/over-band highlighting ------------------ #
     summary_rows = []
