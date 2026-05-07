@@ -72,7 +72,14 @@ def login_button(label: str = "Sign in with Google") -> None:
     info banner instead of a non-functional button."""
     if _get_oauth_user():
         return
-    auth_configured = bool(safe_secret("auth", "client_id", None))
+    # Streamlit's per-provider credentials live in [auth.google], a nested
+    # table, so we look two levels deep here.
+    try:
+        auth_configured = bool(
+            (st.secrets.get("auth", {}).get("google", {}) or {}).get("client_id")
+        )
+    except Exception:
+        auth_configured = False
     if not auth_configured:
         st.info(
             "Google sign-in is not configured for this environment.\n\n"

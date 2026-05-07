@@ -111,6 +111,8 @@ Then in the AWS console: IAM → create user `htpn-roster-app` with the policy i
 [auth]
 redirect_uri = "https://<your-app>.streamlit.app/oauth2callback"
 cookie_secret = "<64-char hex>"
+
+[auth.google]
 client_id = "<google client id>.apps.googleusercontent.com"
 client_secret = "<google client secret>"
 server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
