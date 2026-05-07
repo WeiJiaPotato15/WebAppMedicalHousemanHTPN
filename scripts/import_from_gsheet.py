@@ -53,7 +53,7 @@ def main() -> int:
         print("ERROR: no officers in the database. Add officers via the Officers page first.",
               file=sys.stderr)
         return 1
-    by_name_lower = {o.name.strip().lower(): o.email for o in officers}
+    by_name_lower = {o.name.strip().lower(): o.ic_number for o in officers}
 
     days = [monday + timedelta(days=i) for i in range(7)]
     imported = 0
@@ -62,8 +62,8 @@ def main() -> int:
         raw_name = str(row.iloc[args.name_col]).strip()
         if not raw_name or raw_name.lower() in {"name", "ho", "houseman", "house officer"}:
             continue
-        email = by_name_lower.get(raw_name.lower())
-        if not email:
+        ic_number = by_name_lower.get(raw_name.lower())
+        if not ic_number:
             skipped_unknown.append(raw_name)
             continue
         for d_idx, d in enumerate(days):
@@ -73,7 +73,7 @@ def main() -> int:
             code = str(row.iloc[col]).strip()
             if not code:
                 continue
-            store.set_assignment(email=email, on_date=d, shift_code=code, actor_email=args.actor)
+            store.set_assignment(ic_number=ic_number, on_date=d, shift_code=code, actor_email=args.actor)
             imported += 1
 
     print(f"Imported {imported} assignments.")

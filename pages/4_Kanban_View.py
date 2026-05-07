@@ -55,7 +55,7 @@ def main() -> None:
         return
 
     code_to_shift = {s.code: s for s in shifts}
-    name_by_email = {o.email: o.name for o in officers}
+    name_by_ic = {o.ic_number: o.name for o in officers}
 
     # Pick which day to rebalance.
     day = st.selectbox("Day", week_dates(monday), format_func=lambda d: d.strftime("%a %d %b"))
@@ -64,10 +64,10 @@ def main() -> None:
     buckets: dict[str, list[str]] = {"(unassigned)": []}
     for s in shifts:
         buckets.setdefault(s.code, [])
-    by_email = {a.email: a for a in assignments if a.on_date == day}
+    by_ic = {a.ic_number: a for a in assignments if a.on_date == day}
     for o in officers:
-        if o.email in by_email:
-            buckets.setdefault(by_email[o.email].shift_code, []).append(o.name)
+        if o.ic_number in by_ic:
+            buckets.setdefault(by_ic[o.ic_number].shift_code, []).append(o.name)
         else:
             buckets["(unassigned)"].append(o.name)
 
@@ -75,19 +75,19 @@ def main() -> None:
     sorted_items = sort_items(items, multi_containers=True, direction="vertical")
 
     # Diff: who moved from where to where?
-    name_to_email = {v: k for k, v in name_by_email.items()}
+    name_to_ic = {v: k for k, v in name_by_ic.items()}
     moves = 0
     for container in sorted_items:
         new_code = container["header"]
         for name in container["items"]:
-            email = name_to_email.get(name)
-            if not email:
+            ic = name_to_ic.get(name)
+            if not ic:
                 continue
-            current = by_email.get(email)
+            current = by_ic.get(ic)
             current_code = current.shift_code if current else "(unassigned)"
             if new_code != current_code:
                 store.set_assignment(
-                    email=email,
+                    ic_number=ic,
                     on_date=day,
                     shift_code=None if new_code == "(unassigned)" else new_code,
                     actor_email=user.email,

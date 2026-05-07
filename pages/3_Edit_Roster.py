@@ -1,8 +1,13 @@
 """Admin: edit the roster as a spreadsheet grid.
 
-Rows = officers. Columns = days of the chosen week. Each cell is a dropdown
-populated from the master shift list. Auto-refresh every 5s pulls in other
-admins' changes; presence sidebar shows who else is editing.
+Rows = officers (filtered to those whose posting has started by week's end and
+whose EOP, if any, is not before week's start). Columns = days. Each cell is
+a dropdown populated from the master shift list. Writes to cells after a
+freshly-set EOP are rejected with a toast — once an HO is marked end-of-posting
+on day D, days D+1…D+6 cannot be assigned.
+
+Auto-refresh every 5s pulls in other admins' changes; presence sidebar shows
+who else is editing.
 """
 from __future__ import annotations
 
@@ -50,13 +55,16 @@ def main() -> None:
     if ctoday.button("This week"):
         st.session_state.edit_monday = week_start(date.today())
     monday = st.session_state.edit_monday
+    week_sunday = monday + timedelta(days=6)
     clabel.subheader(f"Week of {week_label(monday)}")
 
     store = get_store()
     all_officers = store.list_officers()
     shifts = store.list_shifts()
     assignments = store.get_week_assignments(monday)
-    template_emails = store.get_week_template(monday)
+    template_ics = store.get_week_template(monday)
+    eop_dates = store.list_eop_dates()
+    eop_codes = {s.code for s in shifts if s.duty_type == "EOP"}
 
     if not all_officers:
         st.warning("Add house officers first on the **Officers** page.")
@@ -66,28 +74,53 @@ def main() -> None:
         return
 
     # Row order: template if this week was explicitly created, else group by
-    # ward (matching the source Google Sheet) then alphabetical name.
-    by_email = {o.email: o for o in all_officers}
-    if template_emails:
-        officers = [by_email[e] for e in template_emails if e in by_email]
+    # ward then alphabetical name.
+    by_ic = {o.ic_number: o for o in all_officers}
+    if template_ics:
+        ordered = [by_ic[ic] for ic in template_ics if ic in by_ic]
         st.caption(
-            f"Roster created with {len(officers)} officers in fixed order. "
+            f"Roster created with {len(ordered)} officers in fixed order. "
             "Adding/removing officers globally won't affect this week's row layout."
         )
     else:
-        officers = sorted(all_officers, key=lambda x: ((x.ward_group or "~"), x.name))
+        ordered = sorted(all_officers, key=lambda x: ((x.ward_group or "~"), x.name))
+
+    # Apply posting-window filter: hide HOs whose posting hasn't started by
+    # week's end, and HOs whose EOP fell before this week's Monday.
+    def in_window(o) -> bool:
+        if o.posting_start_date > week_sunday:
+            return False  # not yet posting
+        eop = eop_dates.get(o.ic_number)
+        if eop is not None and eop < monday:
+            return False  # already finished
+        return True
+
+    officers = [o for o in ordered if in_window(o)]
+    excluded = len(ordered) - len(officers)
+    if excluded:
+        st.caption(
+            f"_{excluded} HO(s) hidden — posting hasn't started yet, or EOP was before this week._"
+        )
+
+    if not officers:
+        st.info("No house officers active in this week.")
+        return
 
     days = week_dates(monday)
     day_cols = [d.strftime("%a %d/%m") for d in days]
     shifts_by_code = {s.code: s for s in shifts}
 
-    # Build the grid as a DataFrame: ward + officer rows, day columns.
-    by_key = {(a.email, a.on_date): a for a in assignments}
+    # Build the grid as a DataFrame: ward + name + (hidden) ic_number, then days.
+    by_key = {(a.ic_number, a.on_date): a for a in assignments}
     grid_rows = []
     for o in officers:
-        row = {"ward": o.ward_group or "—", "name": o.name, "email": o.email}
+        row = {
+            "ward": o.ward_group or "—",
+            "name": o.name,
+            "ic_number": o.ic_number,
+        }
         for d, dlabel in zip(days, day_cols):
-            row[dlabel] = by_key[(o.email, d)].shift_code if (o.email, d) in by_key else ""
+            row[dlabel] = by_key[(o.ic_number, d)].shift_code if (o.ic_number, d) in by_key else ""
         grid_rows.append(row)
     grid = pd.DataFrame(grid_rows)
 
@@ -95,7 +128,7 @@ def main() -> None:
     column_config: dict = {
         "ward": st.column_config.TextColumn("Ward", disabled=True, width="small"),
         "name": st.column_config.TextColumn("Name", disabled=True),
-        "email": st.column_config.TextColumn("Email", disabled=True),
+        "ic_number": st.column_config.TextColumn("IC", disabled=True),
     }
     for c in day_cols:
         column_config[c] = st.column_config.SelectboxColumn(c, options=shift_options, required=False)
@@ -103,31 +136,69 @@ def main() -> None:
     edited = st.data_editor(
         grid,
         column_config=column_config,
+        column_order=("ward", "name", *day_cols),  # hide ic_number column from view
         width="stretch",
         hide_index=True,
         num_rows="fixed",
         key=f"editor_{monday.isoformat()}",
     )
 
+    # Compute effective EOP per officer for the post-save validation:
+    # min(saved EOP outside this week, EOP in the edited state for this week).
+    external_eop: dict[str, date] = {
+        ic: d for ic, d in eop_dates.items() if d < monday or d > week_sunday
+    }
+    in_week_eop: dict[str, date] = {}
+    for _, r in edited.iterrows():
+        ic = r["ic_number"]
+        for d, dlabel in zip(days, day_cols):
+            code = r[dlabel]
+            if code in eop_codes:
+                cur = in_week_eop.get(ic)
+                if cur is None or d < cur:
+                    in_week_eop[ic] = d
+
+    def effective_eop(ic: str) -> date | None:
+        cands = []
+        if ic in external_eop:
+            cands.append(external_eop[ic])
+        if ic in in_week_eop:
+            cands.append(in_week_eop[ic])
+        return min(cands) if cands else None
+
     # Diff and persist
     if not edited.equals(grid):
-        n = 0
+        saved = 0
+        blocked: list[str] = []
         for i, row in edited.iterrows():
-            email = row["email"]
+            ic = row["ic_number"]
+            name = row["name"]
+            eop = effective_eop(ic)
             for d, dlabel in zip(days, day_cols):
                 new = (row[dlabel] or "") if pd.notna(row[dlabel]) else ""
                 old = grid.at[i, dlabel] if dlabel in grid.columns else ""
                 if new == old:
                     continue
+                # Reject non-empty writes to cells strictly after the effective EOP
+                if new and eop is not None and d > eop:
+                    blocked.append(f"{name} on {d.strftime('%a %d/%m')} ({new})")
+                    continue
                 store.set_assignment(
-                    email=email,
+                    ic_number=ic,
                     on_date=d,
                     shift_code=(new or None),
                     actor_email=user.email,
                 )
-                n += 1
-        st.toast(f"Saved {n} change(s).", icon="✅")
-        # Bust caches so other admins / the public page pick this up immediately.
+                saved += 1
+        if saved:
+            st.toast(f"Saved {saved} change(s).", icon="✅")
+        if blocked:
+            st.warning(
+                f"Blocked {len(blocked)} write(s) to cells after EOP — once an HO is "
+                f"marked end-of-posting, later days are locked. Rejected: "
+                + "; ".join(blocked[:5])
+                + (f"; +{len(blocked)-5} more" if len(blocked) > 5 else "")
+            )
         st.cache_data.clear()
         st.rerun()
 
@@ -149,8 +220,6 @@ def main() -> None:
     summary = pd.DataFrame(summary_rows)
 
     over = summary[summary["Hours"] > HOURS_HIGH]
-    # "Under" only counts rows that have at least one shift assigned —
-    # all-blank rows on a fresh week shouldn't all flash yellow.
     under = summary[(summary["Hours"] < HOURS_LOW) & (summary["_filled"] > 0)]
 
     if not over.empty:
@@ -177,7 +246,6 @@ def main() -> None:
             return ["background-color: #fef3c7; color: #92400e"] * len(row)
         return [""] * len(row)
 
-    # _filled is hidden from display but kept on the row for the highlight rule.
     st.dataframe(
         summary.style.apply(_highlight, axis=1),
         hide_index=True,
@@ -199,7 +267,7 @@ def main() -> None:
 
     # ---- Create roster for next week --------------------------------------- #
     next_monday = monday + timedelta(days=7)
-    current_has_data = bool(assignments) or template_emails is not None
+    current_has_data = bool(assignments) or template_ics is not None
     next_has_data = store.has_week_data(next_monday)
     if current_has_data and not next_has_data:
         st.divider()
@@ -213,15 +281,14 @@ def main() -> None:
                      key=f"create_next_{next_monday.isoformat()}"):
             # Drop officers whose End-of-Posting is before next Monday — they've
             # already finished their rotation, so don't carry them forward.
-            eop_dates = store.list_eop_dates()
             carried = [
-                o.email for o in officers
-                if (eop_dates.get(o.email) is None) or (eop_dates[o.email] >= next_monday)
+                o.ic_number for o in officers
+                if (eop_dates.get(o.ic_number) is None) or (eop_dates[o.ic_number] >= next_monday)
             ]
             dropped = len(officers) - len(carried)
             store.create_week_template(
                 monday=next_monday,
-                officer_emails=carried,
+                officer_ic_numbers=carried,
                 actor_email=user.email,
             )
             st.session_state.edit_monday = next_monday

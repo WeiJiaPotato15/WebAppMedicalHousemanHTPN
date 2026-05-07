@@ -29,17 +29,17 @@ def assignments_df(
     """Wide-ish frame with one row per (officer, date) including derived fields."""
     if not assignments:
         return pd.DataFrame(columns=[
-            "email", "name", "on_date", "shift_code", "duty_type", "ward", "hours",
+            "ic_number", "name", "on_date", "shift_code", "duty_type", "ward", "hours",
         ])
     s_by_code = {s.code: s for s in shifts}
-    o_by_email = {o.email: o for o in officers}
+    o_by_ic = {o.ic_number: o for o in officers}
     rows = []
     for a in assignments:
         s = s_by_code.get(a.shift_code)
-        o = o_by_email.get(a.email)
+        o = o_by_ic.get(a.ic_number)
         rows.append({
-            "email": a.email,
-            "name": o.name if o else a.email,
+            "ic_number": a.ic_number,
+            "name": o.name if o else a.ic_number,
             "on_date": a.on_date,
             "shift_code": a.shift_code,
             "duty_type": s.duty_type if s else "?",

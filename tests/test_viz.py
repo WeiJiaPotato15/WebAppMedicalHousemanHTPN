@@ -19,14 +19,18 @@ from lib.viz import (
 )
 
 
+_IC_A = "990101010001"
+_IC_B = "920202020002"
+
+
 def _populated_store() -> MemoryStore:
     s = MemoryStore(seed_sample_data=False)
-    s.upsert_officer(Officer(email="a@x.com", name="A", posting_start_date=date(2026, 1, 1)))
-    s.upsert_officer(Officer(email="b@x.com", name="B", posting_start_date=date(2026, 1, 1)))
+    s.upsert_officer(Officer(ic_number=_IC_A, name="A", posting_start_date=date(2026, 1, 1)))
+    s.upsert_officer(Officer(ic_number=_IC_B, name="B", posting_start_date=date(2026, 1, 1)))
     monday = date(2026, 5, 4)
-    s.set_assignment("a@x.com", monday, "OH W1", "x")
-    s.set_assignment("a@x.com", date(2026, 5, 5), "MC/EL", "x")
-    s.set_assignment("b@x.com", monday, "OC W1 W72", "x")
+    s.set_assignment(_IC_A, monday, "OH W1", "x")
+    s.set_assignment(_IC_A, date(2026, 5, 5), "MC/EL", "x")
+    s.set_assignment(_IC_B, monday, "OC W1 W72", "x")
     return s
 
 
@@ -57,7 +61,7 @@ def test_hours_chart():
 
 def test_donut_and_progress():
     s = _populated_store()
-    a = s.get_officer_assignments("a@x.com", date(2026, 5, 4), date(2026, 5, 10))
+    a = s.get_officer_assignments(_IC_A, date(2026, 5, 4), date(2026, 5, 10))
     df = assignments_df(a, s.list_shifts(), s.list_officers())
     assert leave_progress_figure(count_leaves(df), 10) is not None
     assert station_mix_donut(df) is not None
@@ -65,8 +69,8 @@ def test_donut_and_progress():
 
 def test_total_hours_and_posting_days():
     s = _populated_store()
-    me = next(o for o in s.list_officers() if o.email == "a@x.com")
-    a = s.get_officer_assignments("a@x.com", date(2026, 1, 1), date(2026, 5, 31))
+    me = next(o for o in s.list_officers() if o.ic_number == _IC_A)
+    a = s.get_officer_assignments(_IC_A, date(2026, 1, 1), date(2026, 5, 31))
     df = assignments_df(a, s.list_shifts(), s.list_officers())
     assert total_hours(df) == 10  # OH W1=10, MC/EL=0
     assert days_in_posting(me, today=date(2026, 5, 7)) == (date(2026, 5, 7) - date(2026, 1, 1)).days

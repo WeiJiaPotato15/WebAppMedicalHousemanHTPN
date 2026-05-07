@@ -8,10 +8,9 @@ from pydantic import BaseModel
 
 
 class Officer(BaseModel):
-    email: str  # primary key
+    ic_number: str  # primary key — Malaysian IC, e.g. "990101015555"
     name: str
     posting_start_date: date
-    ic_last4: Optional[str] = None
     phone: Optional[str] = None
     active: bool = True
     # Primary ward for grouping in the roster grid (e.g. "W1", "W2", "MOPD",
@@ -28,7 +27,7 @@ class Shift(BaseModel):
 
 class Assignment(BaseModel):
     """One cell in the roster grid: who is on what on which date."""
-    email: str
+    ic_number: str
     on_date: date
     shift_code: str
     modified_by: Optional[str] = None

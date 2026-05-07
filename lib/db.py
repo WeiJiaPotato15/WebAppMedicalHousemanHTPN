@@ -7,6 +7,10 @@ Two implementations behind one interface:
 The factory `get_store()` picks one based on whether `st.secrets["aws"]` is configured.
 Reads are wrapped with @st.cache_data(ttl=5) at the call sites in pages, not here,
 so the same store can be used from scripts (no streamlit context needed).
+
+Note on identity: Officer + Assignment are keyed by `ic_number` (Malaysian IC).
+Admin records are keyed by `email` (admin's Google login). Two different identity
+spaces — keep them straight.
 """
 from __future__ import annotations
 
@@ -32,13 +36,13 @@ ALL_TABLES = (T_ROSTER, T_OFFICERS, T_SHIFTS, T_ADMINS, T_AUDIT)
 # ---- Abstract interface --------------------------------------------------- #
 
 class Store(ABC):
-    # Officers
+    # Officers (keyed by ic_number)
     @abstractmethod
     def list_officers(self) -> list[Officer]: ...
     @abstractmethod
     def upsert_officer(self, o: Officer) -> None: ...
     @abstractmethod
-    def delete_officer(self, email: str) -> None: ...
+    def delete_officer(self, ic_number: str) -> None: ...
 
     # Shifts
     @abstractmethod
@@ -48,18 +52,18 @@ class Store(ABC):
     @abstractmethod
     def delete_shift(self, code: str) -> None: ...
 
-    # Assignments
+    # Assignments (keyed by ic_number + date)
     @abstractmethod
     def get_week_assignments(self, monday: date) -> list[Assignment]: ...
     @abstractmethod
-    def get_officer_assignments(self, email: str, start: date, end: date) -> list[Assignment]: ...
+    def get_officer_assignments(self, ic_number: str, start: date, end: date) -> list[Assignment]: ...
     @abstractmethod
     def set_assignment(
-        self, email: str, on_date: date, shift_code: str | None, actor_email: str
+        self, ic_number: str, on_date: date, shift_code: str | None, actor_email: str
     ) -> Optional[Assignment]:
         """Upsert (or delete if shift_code is None) and write audit row. Returns new value."""
 
-    # Admins
+    # Admins (keyed by Google email — admin identity, not officer identity)
     @abstractmethod
     def list_admins(self) -> list[Admin]: ...
     @abstractmethod
@@ -77,12 +81,9 @@ class Store(ABC):
 
     # End-of-posting dates. Derived from assignments — no separate stored field.
     def list_eop_dates(self) -> dict[str, date]:
-        """Return {email: earliest_EOP_date} for every officer with at least one
-        assignment whose shift has duty_type == "EOP". Derived live, so always
-        consistent with the current roster — no sync logic needed.
-
-        Default implementation iterates per-officer; backends can override with a
-        single scan if N round-trips are expensive."""
+        """Return {ic_number: earliest_EOP_date} for every officer with at least
+        one assignment whose shift has duty_type == "EOP". Derived live, so always
+        consistent with the current roster — no sync logic needed."""
         eop_codes = {s.code for s in self.list_shifts() if s.duty_type == "EOP"}
         if not eop_codes:
             return {}
@@ -92,37 +93,32 @@ class Store(ABC):
         end = today + timedelta(days=365)
         out: dict[str, date] = {}
         for o in self.list_officers():
-            for a in self.get_officer_assignments(o.email, start, end):
+            for a in self.get_officer_assignments(o.ic_number, start, end):
                 if a.shift_code in eop_codes:
-                    cur = out.get(o.email)
+                    cur = out.get(o.ic_number)
                     if cur is None or a.on_date < cur:
-                        out[o.email] = a.on_date
+                        out[o.ic_number] = a.on_date
         return out
 
-    # Week templates — snapshot of officer row order at the moment a week is "created".
+    # Week templates — snapshot of officer row order at week creation.
     @abstractmethod
     def get_week_template(self, monday: date) -> Optional[list[str]]:
-        """Return the ordered list of officer emails captured when this week was created,
-        or None if the week was never explicitly created."""
+        """Return the ordered list of officer ic_numbers captured when this week
+        was created, or None if the week was never explicitly created."""
 
     @abstractmethod
     def create_week_template(
-        self, monday: date, officer_emails: list[str], actor_email: str
+        self, monday: date, officer_ic_numbers: list[str], actor_email: str
     ) -> None:
-        """Snapshot officer order for `monday`. Idempotent: rewrites if it already exists.
-        Writes an audit row."""
+        """Snapshot officer order for `monday`. Idempotent. Writes an audit row."""
 
     def has_week_data(self, monday: date) -> bool:
-        """True if the given week has either a template or any assignments. Used to gate
-        the 'Create roster for next week' button."""
         if self.get_week_template(monday) is not None:
             return True
         return bool(self.get_week_assignments(monday))
 
-    # Bootstrap
+    # Bootstrap (admin allowlist)
     def bootstrap_admin_if_empty(self, email: str, name: str) -> Optional[Admin]:
-        """If no admins exist, promote `email` to bootstrap super-admin. Returns the new
-        Admin if promoted, else None (door already closed)."""
         if self.list_admins():
             return None
         a = Admin(
@@ -146,11 +142,11 @@ class MemoryStore(Store):
     """Single-process dict store. Used when no AWS creds are configured."""
 
     def __init__(self, seed_sample_data: bool = True) -> None:
-        self._officers: dict[str, Officer] = {}
+        self._officers: dict[str, Officer] = {}  # keyed by ic_number
         self._shifts: dict[str, Shift] = {}
-        self._roster: dict[tuple[str, date], Assignment] = {}
-        self._templates: dict[date, list[str]] = {}
-        self._admins: dict[str, Admin] = {}
+        self._roster: dict[tuple[str, date], Assignment] = {}  # (ic_number, date) -> Assignment
+        self._templates: dict[date, list[str]] = {}  # monday -> [ic_numbers]
+        self._admins: dict[str, Admin] = {}  # keyed by email
         self._audit: dict[str, list[AuditEntry]] = defaultdict(list)
         self._seeded = False
         self._auto_seed(sample_data=seed_sample_data)
@@ -160,38 +156,33 @@ class MemoryStore(Store):
             return
         from datetime import date as _d, timedelta as _td
 
-        # Always seed the shift dictionary — pages reference it everywhere.
         for s in SEED_SHIFTS:
             self.upsert_shift(Shift(**s))
 
         if sample_data:
-            # 3 sample officers so the local UI has something to render.
             samples = [
-                Officer(email="alice@example.com", name="Dr. Alice",
+                Officer(ic_number="990101015555", name="Dr. Alice",
                         posting_start_date=_d(2026, 2, 1), ward_group="W1"),
-                Officer(email="ben@example.com", name="Dr. Ben",
+                Officer(ic_number="920202075555", name="Dr. Ben",
                         posting_start_date=_d(2026, 2, 15), ward_group="W2"),
-                Officer(email="chen@example.com", name="Dr. Chen",
+                Officer(ic_number="910303095555", name="Dr. Chen",
                         posting_start_date=_d(2026, 3, 1), ward_group="PERI"),
             ]
             for o in samples:
                 self.upsert_officer(o)
 
-            # Sample assignments for the current ISO week so the public roster
-            # and per-HO stats pages show working visualizations on first load.
-            # Written directly to the dict to skip audit-log noise on bootstrap.
             today = _d.today()
             monday = today - _td(days=today.weekday())
             days = [monday + _td(days=i) for i in range(7)]
             weekly = {
-                "alice@example.com": ["OH W1", "OH W1", "OH W2", "MC/EL", "OH W1", "OFF", "PC"],
-                "ben@example.com":   ["OC W1 W72", "PC", "OH W2", "OH W3", "EH W1", "OFF", "OFF"],
-                "chen@example.com":  ["PERI OH", "PERI EH", "OFF", "PERI OH", "OC W3 W4", "PC", "OFF"],
+                "990101015555": ["OH W1", "OH W1", "OH W2", "MC/EL", "OH W1", "OFF", "PC"],
+                "920202075555": ["OC W1 W72", "PC", "OH W2", "OH W3", "EH W1", "OFF", "OFF"],
+                "910303095555": ["PERI OH", "PERI EH", "OFF", "PERI OH", "OC W3 W4", "PC", "OFF"],
             }
-            for email, codes in weekly.items():
+            for ic, codes in weekly.items():
                 for d, code in zip(days, codes):
-                    self._roster[(email, d)] = Assignment(
-                        email=email, on_date=d, shift_code=code,
+                    self._roster[(ic, d)] = Assignment(
+                        ic_number=ic, on_date=d, shift_code=code,
                         modified_by="seed@local", modified_at=now_iso(),
                     )
 
@@ -201,9 +192,9 @@ class MemoryStore(Store):
     def list_officers(self):
         return sorted(self._officers.values(), key=lambda o: o.name)
     def upsert_officer(self, o):
-        self._officers[o.email] = o
-    def delete_officer(self, email):
-        self._officers.pop(email, None)
+        self._officers[o.ic_number] = o
+    def delete_officer(self, ic_number):
+        self._officers.pop(ic_number, None)
 
     # Shifts
     def list_shifts(self):
@@ -216,11 +207,11 @@ class MemoryStore(Store):
     # Roster
     def get_week_assignments(self, monday):
         end = date.fromordinal(monday.toordinal() + 6)
-        return [a for (e, d), a in self._roster.items() if monday <= d <= end]
-    def get_officer_assignments(self, email, start, end):
-        return [a for (e, d), a in self._roster.items() if e == email and start <= d <= end]
-    def set_assignment(self, email, on_date, shift_code, actor_email):
-        key = (email, on_date)
+        return [a for (ic, d), a in self._roster.items() if monday <= d <= end]
+    def get_officer_assignments(self, ic_number, start, end):
+        return [a for (ic, d), a in self._roster.items() if ic == ic_number and start <= d <= end]
+    def set_assignment(self, ic_number, on_date, shift_code, actor_email):
+        key = (ic_number, on_date)
         before = self._roster.get(key)
         before_code = before.shift_code if before else None
         if shift_code is None:
@@ -228,13 +219,13 @@ class MemoryStore(Store):
             after = None
         else:
             after = Assignment(
-                email=email, on_date=on_date, shift_code=shift_code,
+                ic_number=ic_number, on_date=on_date, shift_code=shift_code,
                 modified_by=actor_email, modified_at=now_iso(),
             )
             self._roster[key] = after
         self.add_audit(AuditEntry(
             timestamp=now_iso(), actor=actor_email, action="set_assignment",
-            target=f"{email}#{on_date.isoformat()}", before=before_code, after=shift_code,
+            target=f"{ic_number}#{on_date.isoformat()}", before=before_code, after=shift_code,
         ))
         return after
 
@@ -259,12 +250,12 @@ class MemoryStore(Store):
     def get_week_template(self, monday):
         return list(self._templates[monday]) if monday in self._templates else None
 
-    def create_week_template(self, monday, officer_emails, actor_email):
-        self._templates[monday] = list(officer_emails)
+    def create_week_template(self, monday, officer_ic_numbers, actor_email):
+        self._templates[monday] = list(officer_ic_numbers)
         self.add_audit(AuditEntry(
             timestamp=now_iso(), actor=actor_email, action="create_week_template",
             target=f"week:{monday.isoformat()}",
-            before=None, after=f"{len(officer_emails)} officers",
+            before=None, after=f"{len(officer_ic_numbers)} officers",
         ))
 
     # EOP — direct dict scan
@@ -273,12 +264,12 @@ class MemoryStore(Store):
         if not eop_codes:
             return {}
         out: dict[str, date] = {}
-        for (email, on_date), a in self._roster.items():
+        for (ic, on_date), a in self._roster.items():
             if a.shift_code not in eop_codes:
                 continue
-            cur = out.get(email)
+            cur = out.get(ic)
             if cur is None or on_date < cur:
-                out[email] = on_date
+                out[ic] = on_date
         return out
 
 
@@ -301,7 +292,6 @@ class DynamoStore(Store):
 
     @staticmethod
     def _to_item(d: dict) -> dict:
-        # Strip None and convert dates to ISO strings.
         out = {}
         for k, v in d.items():
             if v is None:
@@ -318,10 +308,9 @@ class DynamoStore(Store):
         out = []
         for it in resp.get("Items", []):
             out.append(Officer(
-                email=it["pk"].split("#", 1)[1],
+                ic_number=it["pk"].split("#", 1)[1],
                 name=it["name"],
                 posting_start_date=date.fromisoformat(it["posting_start_date"]),
-                ic_last4=it.get("ic_last4"),
                 phone=it.get("phone"),
                 active=it.get("active", True),
                 ward_group=it.get("ward_group"),
@@ -330,19 +319,18 @@ class DynamoStore(Store):
 
     def upsert_officer(self, o):
         item = self._to_item({
-            "pk": f"HO#{o.email}",
+            "pk": f"HO#{o.ic_number}",
             "sk": "PROFILE",
             "name": o.name,
             "posting_start_date": o.posting_start_date,
-            "ic_last4": o.ic_last4,
             "phone": o.phone,
             "active": o.active,
             "ward_group": o.ward_group,
         })
         self._t(T_OFFICERS).put_item(Item=item)
 
-    def delete_officer(self, email):
-        self._t(T_OFFICERS).delete_item(Key={"pk": f"HO#{email}", "sk": "PROFILE"})
+    def delete_officer(self, ic_number):
+        self._t(T_OFFICERS).delete_item(Key={"pk": f"HO#{ic_number}", "sk": "PROFILE"})
 
     # Shifts
     def list_shifts(self):
@@ -358,14 +346,10 @@ class DynamoStore(Store):
         return sorted(out, key=lambda s: s.code)
 
     def upsert_shift(self, s):
-        item = self._to_item({
-            "pk": f"SHIFT#{s.code}",
-            "sk": "MASTER",
-            "hours": s.hours,
-            "duty_type": s.duty_type,
-            "ward": s.ward,
-        })
-        self._t(T_SHIFTS).put_item(Item=item)
+        self._t(T_SHIFTS).put_item(Item=self._to_item({
+            "pk": f"SHIFT#{s.code}", "sk": "MASTER",
+            "hours": s.hours, "duty_type": s.duty_type, "ward": s.ward,
+        }))
 
     def delete_shift(self, code):
         self._t(T_SHIFTS).delete_item(Key={"pk": f"SHIFT#{code}", "sk": "MASTER"})
@@ -375,12 +359,13 @@ class DynamoStore(Store):
         from boto3.dynamodb.conditions import Attr
         start = monday.isoformat()
         end = date.fromordinal(monday.toordinal() + 6).isoformat()
-        # No GSI on date — we scan with a filter. Volume is tiny (≤30 HO × 7 days = 210 items).
         resp = self._t(T_ROSTER).scan(FilterExpression=Attr("sk").between(start, end))
         out = []
         for it in resp.get("Items", []):
+            if not it.get("pk", "").startswith("HO#"):
+                continue
             out.append(Assignment(
-                email=it["pk"].split("#", 1)[1],
+                ic_number=it["pk"].split("#", 1)[1],
                 on_date=date.fromisoformat(it["sk"]),
                 shift_code=it["shift_code"],
                 modified_by=it.get("modified_by"),
@@ -388,16 +373,16 @@ class DynamoStore(Store):
             ))
         return out
 
-    def get_officer_assignments(self, email, start, end):
+    def get_officer_assignments(self, ic_number, start, end):
         from boto3.dynamodb.conditions import Key
         resp = self._t(T_ROSTER).query(
-            KeyConditionExpression=Key("pk").eq(f"HO#{email}")
+            KeyConditionExpression=Key("pk").eq(f"HO#{ic_number}")
             & Key("sk").between(start.isoformat(), end.isoformat())
         )
         out = []
         for it in resp.get("Items", []):
             out.append(Assignment(
-                email=email,
+                ic_number=ic_number,
                 on_date=date.fromisoformat(it["sk"]),
                 shift_code=it["shift_code"],
                 modified_by=it.get("modified_by"),
@@ -405,8 +390,8 @@ class DynamoStore(Store):
             ))
         return out
 
-    def set_assignment(self, email, on_date, shift_code, actor_email):
-        key = {"pk": f"HO#{email}", "sk": on_date.isoformat()}
+    def set_assignment(self, ic_number, on_date, shift_code, actor_email):
+        key = {"pk": f"HO#{ic_number}", "sk": on_date.isoformat()}
         existing = self._t(T_ROSTER).get_item(Key=key).get("Item")
         before_code = existing.get("shift_code") if existing else None
         if shift_code is None:
@@ -414,18 +399,16 @@ class DynamoStore(Store):
             after = None
         else:
             self._t(T_ROSTER).put_item(Item={
-                **key,
-                "shift_code": shift_code,
-                "modified_by": actor_email,
-                "modified_at": now_iso(),
+                **key, "shift_code": shift_code,
+                "modified_by": actor_email, "modified_at": now_iso(),
             })
             after = Assignment(
-                email=email, on_date=on_date, shift_code=shift_code,
+                ic_number=ic_number, on_date=on_date, shift_code=shift_code,
                 modified_by=actor_email, modified_at=now_iso(),
             )
         self.add_audit(AuditEntry(
             timestamp=now_iso(), actor=actor_email, action="set_assignment",
-            target=f"{email}#{on_date.isoformat()}", before=before_code, after=shift_code,
+            target=f"{ic_number}#{on_date.isoformat()}", before=before_code, after=shift_code,
         ))
         return after
 
@@ -448,20 +431,15 @@ class DynamoStore(Store):
         if not it:
             return None
         return Admin(
-            email=email,
-            role=it.get("role", "admin"),
-            added_by=it.get("added_by"),
-            added_at=it.get("added_at"),
+            email=email, role=it.get("role", "admin"),
+            added_by=it.get("added_by"), added_at=it.get("added_at"),
             is_bootstrap=it.get("is_bootstrap", False),
         )
 
     def upsert_admin(self, a):
         self._t(T_ADMINS).put_item(Item=self._to_item({
-            "pk": f"ADMIN#{a.email}",
-            "sk": "MASTER",
-            "role": a.role,
-            "added_by": a.added_by,
-            "added_at": a.added_at,
+            "pk": f"ADMIN#{a.email}", "sk": "MASTER",
+            "role": a.role, "added_by": a.added_by, "added_at": a.added_at,
             "is_bootstrap": a.is_bootstrap,
         }))
 
@@ -489,17 +467,12 @@ class DynamoStore(Store):
     def add_audit(self, entry):
         ym = entry.timestamp[:7]
         self._t(T_AUDIT).put_item(Item=self._to_item({
-            "pk": f"AUDIT#{ym}",
-            "sk": f"{entry.timestamp}#{entry.actor}",
-            "action": entry.action,
-            "target": entry.target,
-            "before": entry.before,
-            "after": entry.after,
+            "pk": f"AUDIT#{ym}", "sk": f"{entry.timestamp}#{entry.actor}",
+            "action": entry.action, "target": entry.target,
+            "before": entry.before, "after": entry.after,
         }))
 
     # Week templates — stored in htpn_roster under pk=WEEK#<monday>, sk=TEMPLATE.
-    # The week-assignment scan filters sk by ISO date range, so these rows are
-    # invisible to that path even though they share the table.
     def get_week_template(self, monday):
         resp = self._t(T_ROSTER).get_item(Key={
             "pk": f"WEEK#{monday.isoformat()}", "sk": "TEMPLATE",
@@ -507,20 +480,20 @@ class DynamoStore(Store):
         item = resp.get("Item")
         if not item:
             return None
-        return list(item.get("officer_emails", []))
+        return list(item.get("officer_ic_numbers", item.get("officer_emails", [])))
 
-    def create_week_template(self, monday, officer_emails, actor_email):
+    def create_week_template(self, monday, officer_ic_numbers, actor_email):
         self._t(T_ROSTER).put_item(Item={
             "pk": f"WEEK#{monday.isoformat()}",
             "sk": "TEMPLATE",
-            "officer_emails": list(officer_emails),
+            "officer_ic_numbers": list(officer_ic_numbers),
             "created_by": actor_email,
             "created_at": now_iso(),
         })
         self.add_audit(AuditEntry(
             timestamp=now_iso(), actor=actor_email, action="create_week_template",
             target=f"week:{monday.isoformat()}",
-            before=None, after=f"{len(officer_emails)} officers",
+            before=None, after=f"{len(officer_ic_numbers)} officers",
         ))
 
     # EOP — single scan + Python-side filter (table is small)
@@ -532,17 +505,17 @@ class DynamoStore(Store):
         out: dict[str, date] = {}
         for it in resp.get("Items", []):
             if not it.get("pk", "").startswith("HO#"):
-                continue  # skip WEEK#... TEMPLATE rows
+                continue
             if it.get("shift_code") not in eop_codes:
                 continue
             try:
                 on_date = date.fromisoformat(it["sk"])
             except (ValueError, KeyError):
                 continue
-            email = it["pk"].split("#", 1)[1]
-            cur = out.get(email)
+            ic = it["pk"].split("#", 1)[1]
+            cur = out.get(ic)
             if cur is None or on_date < cur:
-                out[email] = on_date
+                out[ic] = on_date
         return out
 
 
@@ -562,7 +535,6 @@ def _read_aws_secrets() -> Optional[dict]:
     the factory transparently falls back to MemoryStore in dev."""
     try:
         import streamlit as st  # type: ignore
-        # st.secrets raises StreamlitSecretNotFoundError if no file exists, so guard.
         aws = st.secrets.get("aws", {})
         key_id = aws.get("access_key_id", "")
         secret = aws.get("secret_access_key", "")
@@ -599,6 +571,5 @@ def get_store() -> Store:
 
 
 def reset_store_for_tests() -> None:
-    """Force re-creation. Tests call this to swap implementations."""
     global _singleton
     _singleton = None

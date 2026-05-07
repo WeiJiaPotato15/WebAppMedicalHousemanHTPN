@@ -64,13 +64,13 @@ def overview() -> None:
     # Annotate every assignment row with its officer's ward_group, then split
     # into one heatmap per ward. "W"-numeric wards come first in numeric order
     # (W1, W2, W3, W6 …), other wards alphabetical, ungrouped last.
-    by_email = {x.email: x for x in o}
+    by_ic = {x.ic_number: x for x in o}
     if df.empty:
         st.info("No assignments yet for this week.")
     else:
         df = df.assign(
-            ward_group=df["email"].map(
-                lambda e: (by_email[e].ward_group if e in by_email else None)
+            ward_group=df["ic_number"].map(
+                lambda ic: (by_ic[ic].ward_group if ic in by_ic else None)
             )
         )
 

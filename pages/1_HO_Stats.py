@@ -25,10 +25,10 @@ st.set_page_config(page_title="My Stats — HTPN Roster", page_icon="📊", layo
 
 
 @st.cache_data(ttl=15)
-def _load_for_officer(email: str, start_iso: str, end_iso: str):
+def _load_for_officer(ic_number: str, start_iso: str, end_iso: str):
     start, end = date.fromisoformat(start_iso), date.fromisoformat(end_iso)
     store = get_store()
-    a = store.get_officer_assignments(email, start, end)
+    a = store.get_officer_assignments(ic_number, start, end)
     s = store.list_shifts()
     o = store.list_officers()
     return a, s, o
@@ -52,24 +52,24 @@ def main() -> None:
     cutoff = today - timedelta(days=30)
     visible = [
         o for o in officers
-        if (eop_dates.get(o.email) is None) or (eop_dates[o.email] >= cutoff)
+        if (eop_dates.get(o.ic_number) is None) or (eop_dates[o.ic_number] >= cutoff)
     ]
     hidden = len(officers) - len(visible)
     if not visible:
         st.info("No active or recently-departed house officers to display.")
         return
 
-    name_to_email = {o.name: o.email for o in visible}
-    pick = st.selectbox("Your name", list(name_to_email.keys()),
+    name_to_ic = {o.name: o.ic_number for o in visible}
+    pick = st.selectbox("Your name", list(name_to_ic.keys()),
                         help=(f"{hidden} HO(s) hidden — left medical posting more than 30 days ago"
                               if hidden else None))
     if not pick:
         return
-    email = name_to_email[pick]
-    me = next(o for o in officers if o.email == email)
+    ic_number = name_to_ic[pick]
+    me = next(o for o in officers if o.ic_number == ic_number)
 
     today = date.today()
-    a, s, o = _load_for_officer(email, me.posting_start_date.isoformat(), today.isoformat())
+    a, s, o = _load_for_officer(ic_number, me.posting_start_date.isoformat(), today.isoformat())
     df = assignments_df(a, s, o)
 
     leaves = count_leaves(df)
