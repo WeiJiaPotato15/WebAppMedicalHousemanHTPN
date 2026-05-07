@@ -104,14 +104,24 @@ def week_grid_figure(df: pd.DataFrame, monday: date) -> go.Figure:
 # ---- Admin coverage chart ------------------------------------------------- #
 
 def staff_per_station_per_day_figure(df: pd.DataFrame, min_per_ward: int = 1) -> go.Figure:
-    """Stacked bar: per-day count of staff per ward (excluding non-work duty types)."""
+    """Stacked bar: per-day count of staff per ward (excluding non-work duty types).
+
+    OC shifts are bucketed as "OC" rather than by ward combo (W1+W72 etc.) so
+    the chart's ward stacks are clean primary-duty counts. Other duty types
+    (MOPD, PERI, …) keep their duty_type label."""
     if df.empty:
         return go.Figure().update_layout(title="No data")
     work = df[~df["duty_type"].isin(NON_WORK_DUTY_TYPES)]
     if work.empty:
         return go.Figure().update_layout(title="No working assignments yet")
+
+    def _category(row):
+        if row["duty_type"] in {"EH", "OH", "TAG"}:
+            return row["ward"] if pd.notna(row["ward"]) else row["duty_type"]
+        return row["duty_type"]
+
     grouped = (
-        work.assign(ward=work["ward"].fillna(work["duty_type"]))
+        work.assign(ward=work.apply(_category, axis=1))
         .groupby(["on_date", "ward"]).size().reset_index(name="staff")
     )
     fig = px.bar(
@@ -203,11 +213,13 @@ def daily_category_counts(
     """Build a (category × day) count grid from the editor's current state.
 
     Categorization:
-    - EH/OH/OC/TAG → bucket by the shift's ward (W1, W2, …)
-    - everything else → bucket by duty_type (MOPD, PERI, MC/EL, OFF, …)
+    - EH/OH/TAG → bucket by the shift's ward (W1, W2, …) — primary day duty.
+    - everything else, including OC → bucket by duty_type. OC ("On-call")
+      stays a single category instead of fragmenting into "W1+W72", "W3+W4"
+      etc., which is what the leader wants to see at a glance.
 
-    Rows sorted: numeric wards first (W1, W2, …), other ward strings, then
-    non-ward categories alphabetically.
+    Rows sorted: numeric wards first (W1, W2, …), then non-ward categories
+    alphabetically.
     """
     counts: dict[str, dict[object, int]] = {}
     for _, r in edited.iterrows():
@@ -216,7 +228,7 @@ def daily_category_counts(
             if not code or code not in shifts_by_code:
                 continue
             s = shifts_by_code[code]
-            if s.duty_type in {"EH", "OH", "OC", "TAG"}:
+            if s.duty_type in {"EH", "OH", "TAG"}:
                 cat = s.ward or s.duty_type
             else:
                 cat = s.duty_type
