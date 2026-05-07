@@ -60,27 +60,43 @@ def overview() -> None:
         )
         return
 
-    # Group officers by ward_group: order rows (ward_group, name) and prefix
-    # the name with the ward so the heatmap visibly shows "[W1] Dr. Alice"
-    # blocked together, then "[W2] Dr. Ben", then "[PERI] Dr. Chen", etc.
-    # Officers without ward_group fall to the bottom under "[—]".
+    # Annotate every assignment row with its officer's ward_group, then split
+    # into one heatmap per ward. "W"-numeric wards come first in numeric order
+    # (W1, W2, W3, W6 …), other wards alphabetical, ungrouped last.
     by_email = {x.email: x for x in o}
-    if not df.empty:
+    if df.empty:
+        st.info("No assignments yet for this week.")
+    else:
         df = df.assign(
             ward_group=df["email"].map(
                 lambda e: (by_email[e].ward_group if e in by_email else None)
             )
         )
-        df["name"] = df.apply(
-            lambda r: f"[{r['ward_group']}] {r['name']}" if r["ward_group"] else f"[—] {r['name']}",
-            axis=1,
-        )
-        df = df.assign(
-            __ward_sort=df["ward_group"].fillna("~~~"),
-        ).sort_values(["__ward_sort", "name"]).drop(columns="__ward_sort")
 
-    fig = week_grid_figure(df, st.session_state.view_monday)
-    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+        def _ward_sort_key(w: str) -> tuple[int, int | str]:
+            if w and w.startswith("W") and w[1:].isdigit():
+                return (0, int(w[1:]))
+            return (1, w or "~~~")
+
+        wards = sorted(
+            (w for w in df["ward_group"].unique() if w),
+            key=_ward_sort_key,
+        )
+        for ward in wards:
+            sub = df[df["ward_group"] == ward].sort_values("name")
+            st.markdown(f"#### Ward {ward}" if ward.startswith("W") and ward[1:].isdigit() else f"#### {ward}")
+            fig = week_grid_figure(sub, st.session_state.view_monday)
+            st.plotly_chart(fig, width="stretch", config={"displayModeBar": False},
+                            key=f"grid_{ward}_{st.session_state.view_monday.isoformat()}")
+
+        ungrouped = df[df["ward_group"].isna()]
+        if not ungrouped.empty:
+            st.markdown("#### Ungrouped")
+            st.caption("These officers don't have a Ward group set yet — admins can fix this on the Officers page.")
+            sub = ungrouped.sort_values("name")
+            fig = week_grid_figure(sub, st.session_state.view_monday)
+            st.plotly_chart(fig, width="stretch", config={"displayModeBar": False},
+                            key=f"grid_ungrouped_{st.session_state.view_monday.isoformat()}")
 
     with st.expander("Legend (duty types)"):
         cols = st.columns(4)

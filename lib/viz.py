@@ -93,8 +93,8 @@ def week_grid_figure(df: pd.DataFrame, monday: date) -> go.Figure:
         showscale=False, hovertemplate="%{y}<br>%{x}<br>%{text}<extra></extra>",
     ))
     fig.update_layout(
-        height=max(300, 28 * len(pivot.index) + 80),
-        margin=dict(l=160, r=10, t=10, b=10),  # extra left room for "[W1] Dr. ..." labels
+        height=max(220, 32 * len(pivot.index) + 80),
+        margin=dict(l=120, r=10, t=10, b=10),  # comfortable for typical "Dr. Name" labels
         xaxis=dict(side="top"),
         yaxis=dict(autorange="reversed"),
     )
