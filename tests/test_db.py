@@ -55,3 +55,39 @@ def test_bootstrap_admin_only_once():
     a2 = s.bootstrap_admin_if_empty("bob@x.com", "Bob")
     assert a2 is None  # door is closed
     assert len(s.list_admins()) == 1
+
+
+def test_week_template_roundtrip():
+    s = fresh_store()
+    monday = date(2026, 5, 4)
+    assert s.get_week_template(monday) is None
+    assert s.has_week_data(monday) is False
+
+    s.create_week_template(monday, ["a@x.com", "b@x.com", "c@x.com"], "leader@x.com")
+    assert s.get_week_template(monday) == ["a@x.com", "b@x.com", "c@x.com"]
+    assert s.has_week_data(monday) is True
+
+
+def test_has_week_data_with_only_assignments():
+    s = fresh_store()
+    s.upsert_officer(Officer(email="a@x.com", name="A", posting_start_date=date(2026, 1, 1)))
+    monday = date(2026, 5, 4)
+    assert s.has_week_data(monday) is False
+    s.set_assignment("a@x.com", monday, "OH W1", "leader@x.com")
+    assert s.has_week_data(monday) is True
+
+
+def test_create_week_template_audits():
+    from datetime import datetime as _dt
+    s = fresh_store()
+    s.create_week_template(date(2026, 5, 11), ["a@x.com", "b@x.com"], "leader@x.com")
+    audit = s.list_audit(_dt.utcnow().strftime("%Y-%m"))
+    assert any(e.action == "create_week_template" for e in audit)
+
+
+def test_create_week_template_overwrites():
+    s = fresh_store()
+    monday = date(2026, 5, 11)
+    s.create_week_template(monday, ["a@x.com", "b@x.com"], "leader@x.com")
+    s.create_week_template(monday, ["c@x.com"], "leader@x.com")
+    assert s.get_week_template(monday) == ["c@x.com"]

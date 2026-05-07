@@ -75,6 +75,26 @@ class Store(ABC):
     @abstractmethod
     def add_audit(self, entry: AuditEntry) -> None: ...
 
+    # Week templates — snapshot of officer row order at the moment a week is "created".
+    @abstractmethod
+    def get_week_template(self, monday: date) -> Optional[list[str]]:
+        """Return the ordered list of officer emails captured when this week was created,
+        or None if the week was never explicitly created."""
+
+    @abstractmethod
+    def create_week_template(
+        self, monday: date, officer_emails: list[str], actor_email: str
+    ) -> None:
+        """Snapshot officer order for `monday`. Idempotent: rewrites if it already exists.
+        Writes an audit row."""
+
+    def has_week_data(self, monday: date) -> bool:
+        """True if the given week has either a template or any assignments. Used to gate
+        the 'Create roster for next week' button."""
+        if self.get_week_template(monday) is not None:
+            return True
+        return bool(self.get_week_assignments(monday))
+
     # Bootstrap
     def bootstrap_admin_if_empty(self, email: str, name: str) -> Optional[Admin]:
         """If no admins exist, promote `email` to bootstrap super-admin. Returns the new
@@ -105,6 +125,7 @@ class MemoryStore(Store):
         self._officers: dict[str, Officer] = {}
         self._shifts: dict[str, Shift] = {}
         self._roster: dict[tuple[str, date], Assignment] = {}
+        self._templates: dict[date, list[str]] = {}
         self._admins: dict[str, Admin] = {}
         self._audit: dict[str, list[AuditEntry]] = defaultdict(list)
         self._seeded = False
@@ -183,6 +204,18 @@ class MemoryStore(Store):
     def add_audit(self, entry):
         ym = entry.timestamp[:7]
         self._audit[ym].append(entry)
+
+    # Week templates
+    def get_week_template(self, monday):
+        return list(self._templates[monday]) if monday in self._templates else None
+
+    def create_week_template(self, monday, officer_emails, actor_email):
+        self._templates[monday] = list(officer_emails)
+        self.add_audit(AuditEntry(
+            timestamp=now_iso(), actor=actor_email, action="create_week_template",
+            target=f"week:{monday.isoformat()}",
+            before=None, after=f"{len(officer_emails)} officers",
+        ))
 
 
 # ---- DynamoDB implementation --------------------------------------------- #
@@ -397,6 +430,32 @@ class DynamoStore(Store):
             "before": entry.before,
             "after": entry.after,
         }))
+
+    # Week templates — stored in hkj_roster under pk=WEEK#<monday>, sk=TEMPLATE.
+    # The week-assignment scan filters sk by ISO date range, so these rows are
+    # invisible to that path even though they share the table.
+    def get_week_template(self, monday):
+        resp = self._t(T_ROSTER).get_item(Key={
+            "pk": f"WEEK#{monday.isoformat()}", "sk": "TEMPLATE",
+        })
+        item = resp.get("Item")
+        if not item:
+            return None
+        return list(item.get("officer_emails", []))
+
+    def create_week_template(self, monday, officer_emails, actor_email):
+        self._t(T_ROSTER).put_item(Item={
+            "pk": f"WEEK#{monday.isoformat()}",
+            "sk": "TEMPLATE",
+            "officer_emails": list(officer_emails),
+            "created_by": actor_email,
+            "created_at": now_iso(),
+        })
+        self.add_audit(AuditEntry(
+            timestamp=now_iso(), actor=actor_email, action="create_week_template",
+            target=f"week:{monday.isoformat()}",
+            before=None, after=f"{len(officer_emails)} officers",
+        ))
 
 
 # ---- Factory -------------------------------------------------------------- #
