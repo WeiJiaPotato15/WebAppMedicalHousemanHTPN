@@ -9,6 +9,7 @@ from datetime import date, timedelta
 
 import streamlit as st
 
+from lib.auth import current_user
 from lib.constants import DUTY_COLORS, week_label, week_start
 from lib.db import get_store
 from lib.viz import assignments_df, week_grid_figure
@@ -113,6 +114,32 @@ def overview() -> None:
         "Looking at your own posting stats? Open **HO Stats** in the sidebar — "
         "no login needed."
     )
+
+
+# ---- Sidebar greeting (shows on every page) ----------------------------- #
+
+def _render_sidebar_user() -> None:
+    u = current_user()
+    with st.sidebar:
+        if u is None:
+            st.caption("Not signed in.")
+        else:
+            st.markdown(f"**Hi, {u.email}**")
+            if u.is_super:
+                st.caption("🛡️ super admin")
+            elif u.is_admin:
+                st.caption("👤 admin")
+            else:
+                st.caption("👁️ signed in")
+            if st.button("Sign out", key="sb_signout", width="stretch"):
+                try:
+                    st.logout()
+                except Exception:
+                    pass
+        st.divider()
+
+
+_render_sidebar_user()
 
 
 # ---- Sidebar navigation -------------------------------------------------- #

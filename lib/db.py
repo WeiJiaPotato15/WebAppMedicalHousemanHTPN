@@ -551,25 +551,36 @@ class DynamoStore(Store):
 _singleton: Optional[Store] = None
 
 
+def _is_placeholder(v: str) -> bool:
+    """True if the value looks like an unfilled secrets-template placeholder."""
+    return (not v) or v.startswith("REPLACE_WITH") or v.startswith("REPLACE-WITH")
+
+
 def _read_aws_secrets() -> Optional[dict]:
-    """Try Streamlit secrets first, then env vars. Returns None if neither has creds."""
+    """Return AWS creds if configured with real values, else None.
+    Template placeholders (REPLACE_WITH_*) are treated as 'not configured' so
+    the factory transparently falls back to MemoryStore in dev."""
     try:
         import streamlit as st  # type: ignore
         # st.secrets raises StreamlitSecretNotFoundError if no file exists, so guard.
         aws = st.secrets.get("aws", {})
-        if aws.get("access_key_id"):
+        key_id = aws.get("access_key_id", "")
+        secret = aws.get("secret_access_key", "")
+        if key_id and secret and not _is_placeholder(key_id) and not _is_placeholder(secret):
             return {
                 "region": aws.get("region", "ap-southeast-1"),
-                "access_key_id": aws["access_key_id"],
-                "secret_access_key": aws["secret_access_key"],
+                "access_key_id": key_id,
+                "secret_access_key": secret,
             }
     except Exception:
         pass
-    if os.getenv("AWS_ACCESS_KEY_ID"):
+    env_key = os.getenv("AWS_ACCESS_KEY_ID", "")
+    env_secret = os.getenv("AWS_SECRET_ACCESS_KEY", "")
+    if env_key and env_secret and not _is_placeholder(env_key) and not _is_placeholder(env_secret):
         return {
             "region": os.getenv("AWS_REGION", "ap-southeast-1"),
-            "access_key_id": os.environ["AWS_ACCESS_KEY_ID"],
-            "secret_access_key": os.environ["AWS_SECRET_ACCESS_KEY"],
+            "access_key_id": env_key,
+            "secret_access_key": env_secret,
         }
     return None
 
