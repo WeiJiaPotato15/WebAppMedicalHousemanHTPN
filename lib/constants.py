@@ -1,7 +1,7 @@
 """Shared constants: week math, color palette, seed shift data, policy thresholds."""
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Iterable
 
 LEAVE_DUTY_TYPES = {"MC/EL"}  # counted toward the 10-cap
@@ -90,4 +90,4 @@ def daterange(a: date, b: date) -> Iterable[date]:
 
 
 def now_iso() -> str:
-    return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

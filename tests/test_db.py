@@ -29,13 +29,13 @@ def test_set_and_get_assignment():
 
 
 def test_overwrite_creates_audit():
-    from datetime import datetime as _dt
+    from datetime import datetime as _dt, timezone as _tz
     s = fresh_store()
     s.upsert_officer(Officer(email="a@x.com", name="A", posting_start_date=date(2026, 1, 1)))
     s.set_assignment("a@x.com", date(2026, 5, 4), "OH W1", "x@x.com")
     s.set_assignment("a@x.com", date(2026, 5, 4), "OH W2", "y@x.com")
     # Audit rows are bucketed by the UTC month of the write, not the assignment date.
-    current_ym = _dt.utcnow().strftime("%Y-%m")
+    current_ym = _dt.now(_tz.utc).strftime("%Y-%m")
     audit = s.list_audit(current_ym)
     assert sum(1 for e in audit if e.action == "set_assignment") >= 2
 
@@ -78,10 +78,10 @@ def test_has_week_data_with_only_assignments():
 
 
 def test_create_week_template_audits():
-    from datetime import datetime as _dt
+    from datetime import datetime as _dt, timezone as _tz
     s = fresh_store()
     s.create_week_template(date(2026, 5, 11), ["a@x.com", "b@x.com"], "leader@x.com")
-    audit = s.list_audit(_dt.utcnow().strftime("%Y-%m"))
+    audit = s.list_audit(_dt.now(_tz.utc).strftime("%Y-%m"))
     assert any(e.action == "create_week_template" for e in audit)
 
 
