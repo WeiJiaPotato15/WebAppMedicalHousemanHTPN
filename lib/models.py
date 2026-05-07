@@ -16,6 +16,8 @@ class Officer(BaseModel):
     # Primary ward for grouping in the roster grid (e.g. "W1", "W2", "MOPD",
     # "PERI"). Mirrors the Google Sheet's row groupings. None = ungrouped.
     ward_group: Optional[str] = None
+    # Which medical posting this is for the HO — typically 1 to 6.
+    posting_number: Optional[int] = None
 
 
 class Shift(BaseModel):

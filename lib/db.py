@@ -209,11 +209,14 @@ class MemoryStore(Store):
         if sample_data:
             samples = [
                 Officer(ic_number="990101015555", name="Dr. Alice",
-                        posting_start_date=_d(2026, 2, 1), ward_group="W1"),
+                        posting_start_date=_d(2026, 2, 1), ward_group="W1",
+                        posting_number=1),
                 Officer(ic_number="920202075555", name="Dr. Ben",
-                        posting_start_date=_d(2026, 2, 15), ward_group="W2"),
+                        posting_start_date=_d(2026, 2, 15), ward_group="W2",
+                        posting_number=3),
                 Officer(ic_number="910303095555", name="Dr. Chen",
-                        posting_start_date=_d(2026, 3, 1), ward_group="W3"),
+                        posting_start_date=_d(2026, 3, 1), ward_group="W3",
+                        posting_number=2),
             ]
             for o in samples:
                 self.upsert_officer(o)
@@ -389,6 +392,7 @@ class DynamoStore(Store):
         resp = self._t(T_OFFICERS).scan()
         out = []
         for it in resp.get("Items", []):
+            pn = it.get("posting_number")
             out.append(Officer(
                 ic_number=it["pk"].split("#", 1)[1],
                 name=it["name"],
@@ -396,6 +400,7 @@ class DynamoStore(Store):
                 phone=it.get("phone"),
                 active=it.get("active", True),
                 ward_group=it.get("ward_group"),
+                posting_number=int(pn) if pn is not None else None,
             ))
         return sorted(out, key=lambda o: o.name)
 
@@ -408,6 +413,7 @@ class DynamoStore(Store):
             "phone": o.phone,
             "active": o.active,
             "ward_group": o.ward_group,
+            "posting_number": o.posting_number,
         })
         self._t(T_OFFICERS).put_item(Item=item)
 

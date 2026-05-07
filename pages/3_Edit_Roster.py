@@ -36,6 +36,7 @@ from lib.viz import (
     daily_category_counts,
     hours_per_staff_figure,
     staff_per_station_per_day_figure,
+    week_grid_figure,
 )
 
 st.set_page_config(page_title="Edit Roster — HTPN", page_icon="📝", layout="wide")
@@ -82,6 +83,36 @@ def main() -> None:
     if not shifts:
         st.warning("Add shift codes first on the **Master Data** page.")
         return
+
+    # Render-time sweep: clear any saved cells outside [posting_start, eop]
+    # for officers in this week. Catches leftover assignments from before the
+    # EOP/start was set, which would otherwise stay forever (the save-loop
+    # block only catches NEW writes).
+    by_ic_full = {o.ic_number: o for o in all_officers}
+    swept = []
+    kept_assignments = []
+    for a in assignments:
+        o = by_ic_full.get(a.ic_number)
+        if o is None:
+            kept_assignments.append(a)
+            continue
+        if a.on_date < o.posting_start_date:
+            store.set_assignment(a.ic_number, a.on_date, None, user.email)
+            swept.append((o.name, a.on_date, a.shift_code, "before posting"))
+            continue
+        eop = eop_dates.get(a.ic_number)
+        if eop is not None and a.on_date > eop:
+            store.set_assignment(a.ic_number, a.on_date, None, user.email)
+            swept.append((o.name, a.on_date, a.shift_code, "after EOP"))
+            continue
+        kept_assignments.append(a)
+    assignments = kept_assignments
+    if swept:
+        st.info(
+            f"Auto-cleared {len(swept)} stale cell(s) outside posting window: "
+            + "; ".join(f"{n} on {d.strftime('%a %d/%m')} ({c}, {r})" for n, d, c, r in swept[:5])
+            + (f"; +{len(swept)-5} more" if len(swept) > 5 else "")
+        )
 
     # Row order: template if this week was explicitly created, else group by
     # ward then alphabetical name.
@@ -247,6 +278,35 @@ def main() -> None:
             st.cache_data.clear()
             st.toast(f"Published {week_label(monday)}.", icon="📢")
             st.rerun()
+
+    # ---- Colored preview of the edited week (Overview-style heatmap) ------ #
+    preview_rows = []
+    for _, r in edited.iterrows():
+        ic = r["ic_number"]
+        for d, dlabel in zip(days, day_cols):
+            code = r[dlabel]
+            if not code:
+                continue
+            s = shifts_by_code.get(code)
+            preview_rows.append({
+                "ic_number": ic,
+                "name": r["name"],
+                "on_date": d,
+                "shift_code": code,
+                "duty_type": s.duty_type if s else "?",
+                "ward": s.ward if s else None,
+                "hours": s.hours if s else 0,
+            })
+    if preview_rows:
+        preview_df = pd.DataFrame(preview_rows)
+        st.subheader("Color preview")
+        st.caption("Mirrors the public Overview's colour-coded view of this week, "
+                   "based on the editor above.")
+        st.plotly_chart(
+            week_grid_figure(preview_df, monday),
+            width="stretch", config={"displayModeBar": False},
+            key=f"edit_roster_preview_{monday.isoformat()}",
+        )
 
     # ---- Duty-type colour legend (same as the public Overview) ------------ #
     with st.expander("Legend (duty types)"):

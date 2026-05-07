@@ -69,10 +69,14 @@ def main() -> None:
     me = next(o for o in officers if o.ic_number == ic_number)
 
     today = date.today()
-    a, s, o = _load_for_officer(ic_number, me.posting_start_date.isoformat(), today.isoformat())
+    # Include published future weeks so stats stay current with the latest
+    # released roster, not just up to today.
+    end = today + timedelta(days=365)
+    a, s, o = _load_for_officer(ic_number, me.posting_start_date.isoformat(), end.isoformat())
     df = assignments_df(a, s, o)
 
-    # Hide assignments that fall in unpublished (draft) weeks.
+    # Hide assignments that fall in unpublished (draft) weeks. Drafts therefore
+    # don't leak into HO-visible stats even though we loaded the full range.
     unpublished = store.list_unpublished_weeks()
     if not df.empty and unpublished:
         def _week_monday(d):

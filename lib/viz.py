@@ -170,7 +170,9 @@ def avg_weekly_hours_recent(weekly: pd.DataFrame, n: int = 4) -> float:
 
 def weekly_hours_trend_figure(weekly: pd.DataFrame) -> go.Figure:
     """Line chart of weekly working hours with the 60h target / 64h cap lines.
-    Markers colored by the same threshold rule used elsewhere."""
+    Markers colored by the same threshold rule used elsewhere. X-axis uses
+    pre-formatted date strings (categorical) so single-point charts don't get
+    plotly's sub-second tick noise."""
     if weekly.empty:
         fig = go.Figure()
         fig.update_layout(
@@ -178,8 +180,10 @@ def weekly_hours_trend_figure(weekly: pd.DataFrame) -> go.Figure:
             height=260, margin=dict(l=10, r=10, t=40, b=10),
         )
         return fig
+    weekly = weekly.copy()
+    weekly["label"] = pd.to_datetime(weekly["week_monday"]).dt.strftime("%d %b %Y")
     fig = go.Figure(go.Scatter(
-        x=weekly["week_monday"], y=weekly["hours"],
+        x=weekly["label"], y=weekly["hours"],
         mode="lines+markers+text",
         line=dict(color="#0ea5e9", width=2),
         marker=dict(
@@ -190,7 +194,7 @@ def weekly_hours_trend_figure(weekly: pd.DataFrame) -> go.Figure:
         text=[f"{int(h)}h" for h in weekly["hours"]],
         textposition="top center",
         textfont=dict(size=11),
-        hovertemplate="<b>Week of %{x|%d %b %Y}</b><br>%{y} hours<extra></extra>",
+        hovertemplate="<b>Week of %{x}</b><br>%{y} hours<extra></extra>",
     ))
     fig.add_hline(y=HOURS_LOW, line_dash="dot", line_color="#92400e",
                   annotation_text=f"{HOURS_LOW}h target", annotation_position="bottom right")
@@ -198,6 +202,7 @@ def weekly_hours_trend_figure(weekly: pd.DataFrame) -> go.Figure:
                   annotation_text=f"{HOURS_HIGH}h cap", annotation_position="top right")
     fig.update_layout(
         xaxis_title="Week (Monday)", yaxis_title="Hours",
+        xaxis=dict(type="category"),
         height=320, margin=dict(l=10, r=10, t=20, b=30),
         hovermode="x unified",
     )
@@ -294,28 +299,31 @@ def station_mix_donut(df_for_one_officer: pd.DataFrame) -> go.Figure:
 
 
 def leave_dates_figure(df_for_one_officer: pd.DataFrame) -> go.Figure:
-    """Timeline of EL/MC dates: one marker per leave day, hover shows date+code."""
+    """Timeline of EL/MC dates: one marker per leave day, hover shows date+code.
+    X-axis is categorical (pre-formatted date strings) so a single point doesn't
+    pull in plotly's sub-second auto-ticks."""
     leaves = df_for_one_officer[df_for_one_officer["duty_type"].isin(LEAVE_DUTY_TYPES)]
     if leaves.empty:
         fig = go.Figure()
         fig.update_layout(title="No EL/MC days taken yet", height=180,
                           margin=dict(l=10, r=10, t=40, b=10))
         return fig
-    leaves = leaves.sort_values("on_date").assign(label=lambda d: d["shift_code"])
+    leaves = leaves.sort_values("on_date").copy()
+    labels = pd.to_datetime(leaves["on_date"]).dt.strftime("%d %b %Y")
     fig = go.Figure(go.Scatter(
-        x=leaves["on_date"], y=[1] * len(leaves), mode="markers+text",
-        text=leaves["on_date"].astype(str).str.slice(5),  # MM-DD
+        x=labels, y=[1] * len(leaves), mode="markers+text",
+        text=labels,
         textposition="top center", textfont={"size": 11},
         marker=dict(size=18, color=DUTY_COLORS["MC/EL"], symbol="circle",
                     line=dict(color="#7f1d1d", width=1)),
-        hovertemplate="<b>%{x|%a %d %b %Y}</b><br>%{customdata}<extra></extra>",
+        hovertemplate="<b>%{x}</b><br>%{customdata}<extra></extra>",
         customdata=leaves["shift_code"],
     ))
     fig.update_yaxes(visible=False, range=[0.5, 1.6])
-    fig.update_xaxes(title=None, showgrid=True)
+    fig.update_xaxes(title=None, showgrid=True, type="category")
     fig.update_layout(
         title=f"EL/MC days — {len(leaves)} taken",
-        height=200, margin=dict(l=10, r=10, t=40, b=20),
+        height=220, margin=dict(l=10, r=10, t=40, b=20),
         showlegend=False,
     )
     return fig

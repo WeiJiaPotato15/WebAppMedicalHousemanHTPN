@@ -34,14 +34,22 @@ def main() -> None:
                 help="Malaysian IC, no dashes — e.g. 990101015555",
             ).strip()
             name = c2.text_input("Full name").strip()
-            c3, c4, c5 = st.columns(3)
+            c3, c4 = st.columns(2)
             posting_start = c3.date_input("Posting start date", value=date.today())
             phone = c4.text_input("Phone")
+            c5, c6 = st.columns(2)
             ward_choice = c5.selectbox(
                 "Ward group",
                 options=[""] + WARD_GROUPS,
                 index=0,
                 help="Primary ward for row grouping in the roster.",
+            )
+            posting_number = c6.selectbox(
+                "Posting number",
+                options=[None, 1, 2, 3, 4, 5, 6],
+                format_func=lambda v: "—" if v is None else f"{v}{'st' if v == 1 else 'nd' if v == 2 else 'rd' if v == 3 else 'th'} posting",
+                index=0,
+                help="Which medical posting this is for the HO (typically 1–6).",
             )
             submitted = st.form_submit_button("Add", type="primary")
             if submitted:
@@ -54,6 +62,7 @@ def main() -> None:
                     store.upsert_officer(Officer(
                         ic_number=ic_number, name=name, posting_start_date=posting_start,
                         phone=(phone or None), active=True, ward_group=ward_group,
+                        posting_number=posting_number,
                     ))
                     store.add_audit(AuditEntry(
                         timestamp=now_iso(), actor=user.email, action="upsert_officer",
@@ -74,6 +83,7 @@ def main() -> None:
     summary_df = pd.DataFrame([{
         "Name": o.name,
         "Ward": o.ward_group or "—",
+        "Posting #": o.posting_number,
         "Posting start": o.posting_start_date,
         "EOP date": eop_dates.get(o.ic_number),
         f"MC/EL used (cap {cap})": leave_counts.get(o.ic_number, 0),
@@ -98,9 +108,14 @@ def main() -> None:
                 options=[None] + WARD_GROUPS,
                 help="One of W1, W2, W3, W6.",
             ),
+            "posting_number": st.column_config.SelectboxColumn(
+                "Posting #",
+                options=[None, 1, 2, 3, 4, 5, 6],
+                help="Which medical posting (1st–6th).",
+            ),
         },
-        column_order=("ic_number", "name", "ward_group", "posting_start_date",
-                      "phone", "active"),
+        column_order=("ic_number", "name", "ward_group", "posting_number",
+                      "posting_start_date", "phone", "active"),
         width="stretch",
         hide_index=True,
         num_rows="fixed",
