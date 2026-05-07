@@ -20,7 +20,7 @@ from lib.viz import (
 
 
 def _populated_store() -> MemoryStore:
-    s = MemoryStore()
+    s = MemoryStore(seed_sample_data=False)
     s.upsert_officer(Officer(email="a@x.com", name="A", posting_start_date=date(2026, 1, 1)))
     s.upsert_officer(Officer(email="b@x.com", name="B", posting_start_date=date(2026, 1, 1)))
     monday = date(2026, 5, 4)

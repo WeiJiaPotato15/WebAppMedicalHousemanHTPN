@@ -121,7 +121,7 @@ class Store(ABC):
 class MemoryStore(Store):
     """Single-process dict store. Used when no AWS creds are configured."""
 
-    def __init__(self) -> None:
+    def __init__(self, seed_sample_data: bool = True) -> None:
         self._officers: dict[str, Officer] = {}
         self._shifts: dict[str, Shift] = {}
         self._roster: dict[tuple[str, date], Assignment] = {}
@@ -129,22 +129,45 @@ class MemoryStore(Store):
         self._admins: dict[str, Admin] = {}
         self._audit: dict[str, list[AuditEntry]] = defaultdict(list)
         self._seeded = False
-        self._auto_seed()
+        self._auto_seed(sample_data=seed_sample_data)
 
-    def _auto_seed(self) -> None:
+    def _auto_seed(self, sample_data: bool = True) -> None:
         if self._seeded:
             return
+        from datetime import date as _d, timedelta as _td
+
+        # Always seed the shift dictionary — pages reference it everywhere.
         for s in SEED_SHIFTS:
             self.upsert_shift(Shift(**s))
-        # 3 sample officers so the local UI has something to render
-        from datetime import date as _d
-        samples = [
-            Officer(email="alice@example.com", name="Dr. Alice", posting_start_date=_d(2026, 2, 1)),
-            Officer(email="ben@example.com", name="Dr. Ben", posting_start_date=_d(2026, 2, 15)),
-            Officer(email="chen@example.com", name="Dr. Chen", posting_start_date=_d(2026, 3, 1)),
-        ]
-        for o in samples:
-            self.upsert_officer(o)
+
+        if sample_data:
+            # 3 sample officers so the local UI has something to render.
+            samples = [
+                Officer(email="alice@example.com", name="Dr. Alice", posting_start_date=_d(2026, 2, 1)),
+                Officer(email="ben@example.com", name="Dr. Ben", posting_start_date=_d(2026, 2, 15)),
+                Officer(email="chen@example.com", name="Dr. Chen", posting_start_date=_d(2026, 3, 1)),
+            ]
+            for o in samples:
+                self.upsert_officer(o)
+
+            # Sample assignments for the current ISO week so the public roster
+            # and per-HO stats pages show working visualizations on first load.
+            # Written directly to the dict to skip audit-log noise on bootstrap.
+            today = _d.today()
+            monday = today - _td(days=today.weekday())
+            days = [monday + _td(days=i) for i in range(7)]
+            weekly = {
+                "alice@example.com": ["OH W1", "OH W1", "OH W2", "MC/EL", "OH W1", "OFF", "PC"],
+                "ben@example.com":   ["OC W1 W72", "PC", "OH W2", "OH W3", "EH W1", "OFF", "OFF"],
+                "chen@example.com":  ["PERI OH", "PERI EH", "OFF", "PERI OH", "OC W3 W4", "PC", "OFF"],
+            }
+            for email, codes in weekly.items():
+                for d, code in zip(days, codes):
+                    self._roster[(email, d)] = Assignment(
+                        email=email, on_date=d, shift_code=code,
+                        modified_by="seed@local", modified_at=now_iso(),
+                    )
+
         self._seeded = True
 
     # Officers

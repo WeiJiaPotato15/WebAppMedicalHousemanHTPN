@@ -66,17 +66,24 @@ def current_user() -> Optional[CurrentUser]:
 
 
 def login_button(label: str = "Sign in with Google") -> None:
-    """Render the Google sign-in button. No-op if already logged in."""
+    """Render the Google sign-in button. No-op if already logged in.
+
+    If [auth] secrets are not configured (typical local-dev), show a helpful
+    info banner instead of a non-functional button."""
     if _get_oauth_user():
         return
-    try:
-        st.login("google", label=label)  # Streamlit 1.42+
-    except Exception as e:
-        st.error(
-            "Google sign-in is not configured. "
-            "Ask the operator to set [auth] secrets in Streamlit Cloud. "
-            f"({e})"
+    auth_configured = bool(safe_secret("auth", "client_id", None))
+    if not auth_configured:
+        st.info(
+            "Google sign-in is not configured for this environment.\n\n"
+            "**Local dev**: copy `.streamlit/secrets.toml.example` to "
+            "`.streamlit/secrets.toml` and fill in the `[auth]` section, then restart Streamlit.\n\n"
+            "**Deployed app**: the operator needs to add `[auth]` to "
+            "Settings → Secrets in Streamlit Cloud."
         )
+        return
+    if st.button(label, type="primary"):
+        st.login("google")  # Streamlit 1.42+ — provider name only; no label kwarg
 
 
 def logout_button(label: str = "Sign out") -> None:

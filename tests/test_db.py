@@ -10,7 +10,9 @@ from lib.models import Officer
 
 
 def fresh_store() -> MemoryStore:
-    return MemoryStore()
+    # seed_sample_data=False keeps the shift dictionary but skips the
+    # 3 sample officers + sample-week roster. Tests assert on clean state.
+    return MemoryStore(seed_sample_data=False)
 
 
 def test_seeds_shifts_on_construction():

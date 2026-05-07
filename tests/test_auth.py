@@ -6,14 +6,14 @@ from lib.db import MemoryStore
 
 
 def test_bootstrap_idempotent_when_already_admin():
-    s = MemoryStore()
+    s = MemoryStore(seed_sample_data=False)
     s.bootstrap_admin_if_empty("alice@x.com", "Alice")
     # second call returns None
     assert s.bootstrap_admin_if_empty("alice@x.com", "Alice") is None
 
 
 def test_existing_admin_blocks_bootstrap():
-    s = MemoryStore()
+    s = MemoryStore(seed_sample_data=False)
     s.bootstrap_admin_if_empty("alice@x.com", "Alice")
     # different user cannot bootstrap once any admin exists
     res = s.bootstrap_admin_if_empty("eve@x.com", "Eve")
