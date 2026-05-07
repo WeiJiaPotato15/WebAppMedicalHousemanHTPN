@@ -61,13 +61,19 @@ def week_grid_figure(df: pd.DataFrame, monday: date) -> go.Figure:
         fig.update_layout(title="No assignments yet for this week", height=200)
         return fig
 
+    # Preserve the row order the caller chose (so ward grouping in the input
+    # df is reflected in the chart). pivot_table defaults to sort=True which
+    # would re-alphabetize the index and undo any grouping.
+    ordered_names = df.drop_duplicates("name", keep="first")["name"].tolist()
     pivot = (
-        df.pivot_table(index="name", columns="on_date", values="shift_code", aggfunc="first")
-        .reindex(columns=days)
+        df.pivot_table(index="name", columns="on_date", values="shift_code",
+                       aggfunc="first", sort=False)
+        .reindex(index=ordered_names, columns=days)
     )
     duty_pivot = (
-        df.pivot_table(index="name", columns="on_date", values="duty_type", aggfunc="first")
-        .reindex(columns=days)
+        df.pivot_table(index="name", columns="on_date", values="duty_type",
+                       aggfunc="first", sort=False)
+        .reindex(index=ordered_names, columns=days)
     )
 
     # Build a numeric z-matrix from the duty_type so we can color via discrete map.
@@ -88,7 +94,7 @@ def week_grid_figure(df: pd.DataFrame, monday: date) -> go.Figure:
     ))
     fig.update_layout(
         height=max(300, 28 * len(pivot.index) + 80),
-        margin=dict(l=10, r=10, t=10, b=10),
+        margin=dict(l=160, r=10, t=10, b=10),  # extra left room for "[W1] Dr. ..." labels
         xaxis=dict(side="top"),
         yaxis=dict(autorange="reversed"),
     )

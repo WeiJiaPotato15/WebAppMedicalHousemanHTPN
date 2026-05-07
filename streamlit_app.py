@@ -60,17 +60,24 @@ def overview() -> None:
         )
         return
 
-    # Sort officers by ward_group then name so the heatmap rows mirror the
-    # admin editor's grouping. Officers without ward_group fall to the bottom.
+    # Group officers by ward_group: order rows (ward_group, name) and prefix
+    # the name with the ward so the heatmap visibly shows "[W1] Dr. Alice"
+    # blocked together, then "[W2] Dr. Ben", then "[PERI] Dr. Chen", etc.
+    # Officers without ward_group fall to the bottom under "[—]".
     by_email = {x.email: x for x in o}
-    sort_keys = {
-        x.email: ((x.ward_group or "~"), x.name) for x in o
-    }
     if not df.empty:
         df = df.assign(
-            __sort_key=df["email"].map(sort_keys),
-            ward_group=df["email"].map(lambda e: by_email[e].ward_group if e in by_email else None),
-        ).sort_values("__sort_key").drop(columns="__sort_key")
+            ward_group=df["email"].map(
+                lambda e: (by_email[e].ward_group if e in by_email else None)
+            )
+        )
+        df["name"] = df.apply(
+            lambda r: f"[{r['ward_group']}] {r['name']}" if r["ward_group"] else f"[—] {r['name']}",
+            axis=1,
+        )
+        df = df.assign(
+            __ward_sort=df["ward_group"].fillna("~~~"),
+        ).sort_values(["__ward_sort", "name"]).drop(columns="__ward_sort")
 
     fig = week_grid_figure(df, st.session_state.view_monday)
     st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
