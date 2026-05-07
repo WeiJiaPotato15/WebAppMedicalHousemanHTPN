@@ -63,7 +63,7 @@ def main() -> None:
             "phone": st.column_config.TextColumn("Phone"),
             "active": st.column_config.CheckboxColumn("Active"),
         },
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         num_rows="fixed",
         key="officers_editor",

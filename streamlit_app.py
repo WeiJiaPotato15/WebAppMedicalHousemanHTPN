@@ -61,7 +61,7 @@ def main() -> None:
         return
 
     fig = week_grid_figure(df, st.session_state.view_monday)
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
 
     with st.expander("Legend (duty types)"):
         from lib.constants import DUTY_COLORS

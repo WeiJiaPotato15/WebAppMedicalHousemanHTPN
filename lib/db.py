@@ -467,8 +467,9 @@ def _read_aws_secrets() -> Optional[dict]:
     """Try Streamlit secrets first, then env vars. Returns None if neither has creds."""
     try:
         import streamlit as st  # type: ignore
-        if "aws" in st.secrets and st.secrets["aws"].get("access_key_id"):
-            aws = st.secrets["aws"]
+        # st.secrets raises StreamlitSecretNotFoundError if no file exists, so guard.
+        aws = st.secrets.get("aws", {})
+        if aws.get("access_key_id"):
             return {
                 "region": aws.get("region", "ap-southeast-1"),
                 "access_key_id": aws["access_key_id"],

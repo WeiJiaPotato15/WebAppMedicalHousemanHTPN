@@ -5,6 +5,7 @@ from datetime import date
 
 import streamlit as st
 
+from lib.constants import safe_secret
 from lib.db import get_store
 from lib.viz import (
     assignments_df,
@@ -50,7 +51,7 @@ def main() -> None:
     df = assignments_df(a, s, o)
 
     leaves = count_leaves(df)
-    cap = int(st.secrets.get("app", {}).get("leave_cap", 10)) if hasattr(st, "secrets") else 10
+    cap = int(safe_secret("app", "leave_cap", 10))
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Days in posting", days_in_posting(me))
@@ -68,10 +69,10 @@ def main() -> None:
 
     c1, c2 = st.columns(2)
     with c1:
-        st.plotly_chart(leave_progress_figure(leaves, cap), use_container_width=True,
+        st.plotly_chart(leave_progress_figure(leaves, cap), width="stretch",
                         config={"displayModeBar": False})
     with c2:
-        st.plotly_chart(station_mix_donut(df), use_container_width=True,
+        st.plotly_chart(station_mix_donut(df), width="stretch",
                         config={"displayModeBar": False})
 
     with st.expander("My recent assignments"):
@@ -82,7 +83,7 @@ def main() -> None:
                 df.sort_values("on_date", ascending=False)[
                     ["on_date", "shift_code", "duty_type", "ward", "hours"]
                 ].reset_index(drop=True),
-                use_container_width=True,
+                width="stretch",
             )
 
 

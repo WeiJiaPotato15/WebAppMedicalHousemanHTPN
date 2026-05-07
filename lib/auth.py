@@ -11,6 +11,7 @@ from typing import Optional
 
 import streamlit as st
 
+from .constants import safe_secret
 from .db import get_store
 from .models import Admin
 
@@ -25,10 +26,7 @@ class CurrentUser:
 
 
 def _bootstrap_disabled() -> bool:
-    try:
-        return bool(st.secrets.get("app", {}).get("disable_bootstrap", False))
-    except Exception:
-        return False
+    return bool(safe_secret("app", "disable_bootstrap", False))
 
 
 def _get_oauth_user() -> Optional[tuple[str, str]]:

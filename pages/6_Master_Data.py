@@ -50,7 +50,7 @@ def main() -> None:
             "duty_type": st.column_config.TextColumn("Duty type"),
             "ward": st.column_config.TextColumn("Ward / location"),
         },
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         num_rows="fixed",
         key="shifts_editor",

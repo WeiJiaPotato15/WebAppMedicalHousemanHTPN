@@ -38,7 +38,7 @@ def main() -> None:
         df = df[df["actor"].isin(f_actor)]
     if f_action:
         df = df[df["action"].isin(f_action)]
-    st.dataframe(df.reset_index(drop=True), use_container_width=True, hide_index=True)
+    st.dataframe(df.reset_index(drop=True), width="stretch", hide_index=True)
 
 
 main()

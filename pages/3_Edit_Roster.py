@@ -13,7 +13,7 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
 from lib.auth import require_admin
-from lib.constants import week_dates, week_label, week_start
+from lib.constants import safe_secret, week_dates, week_label, week_start
 from lib.db import get_store
 from lib.presence import beat, render_sidebar
 from lib.viz import (
@@ -98,7 +98,7 @@ def main() -> None:
     edited = st.data_editor(
         grid,
         column_config=column_config,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         num_rows="fixed",
         key=f"editor_{monday.isoformat()}",
@@ -155,20 +155,17 @@ def main() -> None:
     st.divider()
     st.subheader("Coverage & hours preview")
     df = assignments_df(assignments, shifts, officers)
-    min_per_ward = int(
-        st.secrets.get("app", {}).get("default_min_staff_per_ward", 1)
-        if hasattr(st, "secrets") else 1
-    )
+    min_per_ward = int(safe_secret("app", "default_min_staff_per_ward", 1))
     c1, c2 = st.columns(2)
     with c1:
         st.plotly_chart(
             staff_per_station_per_day_figure(df, min_per_ward),
-            use_container_width=True, config={"displayModeBar": False},
+            width="stretch", config={"displayModeBar": False},
         )
     with c2:
         st.plotly_chart(
             hours_per_staff_figure(df),
-            use_container_width=True, config={"displayModeBar": False},
+            width="stretch", config={"displayModeBar": False},
         )
 
 

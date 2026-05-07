@@ -91,3 +91,16 @@ def daterange(a: date, b: date) -> Iterable[date]:
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def safe_secret(section: str, key: str, default):
+    """Read st.secrets[section][key] without raising when no secrets file exists.
+
+    Streamlit's st.secrets attribute always exists, but accessing it raises
+    StreamlitSecretNotFoundError unless a secrets.toml is present. This helper
+    swallows that so pages stay functional in local-dev mode."""
+    try:
+        import streamlit as st  # local import — keeps this module usable in scripts
+        return st.secrets.get(section, {}).get(key, default)
+    except Exception:
+        return default
