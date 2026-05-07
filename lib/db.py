@@ -20,7 +20,7 @@ from collections import defaultdict
 from datetime import date
 from typing import Optional
 
-from .constants import SEED_SHIFTS, now_iso
+from .constants import LEAVE_DUTY_TYPES, SEED_SHIFTS, now_iso
 from .models import Admin, Assignment, AuditEntry, Officer, Shift
 
 # ---- Table names ---------------------------------------------------------- #
@@ -78,6 +78,24 @@ class Store(ABC):
     def list_audit(self, year_month: str, limit: int = 200) -> list[AuditEntry]: ...
     @abstractmethod
     def add_audit(self, entry: AuditEntry) -> None: ...
+
+    # Cumulative MC/EL counts per officer, since each officer's posting_start_date.
+    def list_leave_counts(self) -> dict[str, int]:
+        """Return {ic_number: count_of_MC_EL_days} per officer, from each
+        officer's posting_start_date through today. Default impl is per-officer;
+        backends can override with a single scan."""
+        leave_codes = {s.code for s in self.list_shifts() if s.duty_type in LEAVE_DUTY_TYPES}
+        if not leave_codes:
+            return {}
+        today = date.today()
+        out: dict[str, int] = {}
+        for o in self.list_officers():
+            n = 0
+            for a in self.get_officer_assignments(o.ic_number, o.posting_start_date, today):
+                if a.shift_code in leave_codes:
+                    n += 1
+            out[o.ic_number] = n
+        return out
 
     # End-of-posting dates. Derived from assignments — no separate stored field.
     def list_eop_dates(self) -> dict[str, date]:
@@ -270,6 +288,21 @@ class MemoryStore(Store):
             cur = out.get(ic)
             if cur is None or on_date < cur:
                 out[ic] = on_date
+        return out
+
+    # Leave counts — direct dict scan (fast path)
+    def list_leave_counts(self):
+        leave_codes = {s.code for s in self.list_shifts() if s.duty_type in LEAVE_DUTY_TYPES}
+        if not leave_codes:
+            return {}
+        out: dict[str, int] = {ic: 0 for ic in self._officers}
+        for (ic, on_date), a in self._roster.items():
+            if a.shift_code not in leave_codes:
+                continue
+            o = self._officers.get(ic)
+            if o is None or on_date < o.posting_start_date:
+                continue
+            out[ic] = out.get(ic, 0) + 1
         return out
 
 
@@ -516,6 +549,30 @@ class DynamoStore(Store):
             cur = out.get(ic)
             if cur is None or on_date < cur:
                 out[ic] = on_date
+        return out
+
+    # Leave counts — single scan + Python-side filter (table is small)
+    def list_leave_counts(self):
+        leave_codes = {s.code for s in self.list_shifts() if s.duty_type in LEAVE_DUTY_TYPES}
+        if not leave_codes:
+            return {}
+        officers = {o.ic_number: o for o in self.list_officers()}
+        resp = self._t(T_ROSTER).scan()
+        out: dict[str, int] = {ic: 0 for ic in officers}
+        for it in resp.get("Items", []):
+            if not it.get("pk", "").startswith("HO#"):
+                continue
+            if it.get("shift_code") not in leave_codes:
+                continue
+            try:
+                on_date = date.fromisoformat(it["sk"])
+            except (ValueError, KeyError):
+                continue
+            ic = it["pk"].split("#", 1)[1]
+            o = officers.get(ic)
+            if o is None or on_date < o.posting_start_date:
+                continue
+            out[ic] = out.get(ic, 0) + 1
         return out
 
 

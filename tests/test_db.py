@@ -110,6 +110,22 @@ def test_list_eop_dates_returns_earliest_per_officer():
     assert out == {IC_A: date(2026, 5, 28)}
 
 
+def test_list_leave_counts():
+    s = fresh_store()
+    s.upsert_officer(Officer(ic_number=IC_A, name="A", posting_start_date=date(2026, 1, 1)))
+    s.upsert_officer(Officer(ic_number=IC_B, name="B", posting_start_date=date(2026, 5, 1)))
+    # Alice: 2 MC/EL days after her posting start
+    s.set_assignment(IC_A, date(2026, 3, 5), "MC/EL", "leader@x.com")
+    s.set_assignment(IC_A, date(2026, 4, 1), "MC/EL", "leader@x.com")
+    s.set_assignment(IC_A, date(2026, 4, 2), "OFF", "leader@x.com")  # not MC/EL
+    # Ben: 1 MC/EL after his posting started, 1 BEFORE (should not count)
+    s.set_assignment(IC_B, date(2026, 4, 25), "MC/EL", "leader@x.com")  # before posting start
+    s.set_assignment(IC_B, date(2026, 5, 10), "MC/EL", "leader@x.com")  # after posting start
+    out = s.list_leave_counts()
+    assert out[IC_A] == 2
+    assert out[IC_B] == 1
+
+
 def test_list_eop_dates_empty_when_no_eop_codes():
     s = fresh_store()
     s.delete_shift("EOP")

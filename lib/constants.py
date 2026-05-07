@@ -12,7 +12,7 @@ WARD_GROUPS: list[str] = ["W1", "W2", "W3", "W6"]
 # Categories that must have ≥1 HO every day. Zero counts in these rows of the
 # Edit Roster's "Staff per category per day" table are highlighted red.
 CRITICAL_COVERAGE_CATEGORIES: set[str] = {
-    "W1", "W2", "W3", "OC", "PERI", "MOPD", "PENDING ED",
+    "W1", "W2", "W3", "W6", "OC", "PERI", "MOPD", "PENDING ED",
 }
 
 # Categories that allow zero coverage on weekends (Sat/Sun) — outpatient

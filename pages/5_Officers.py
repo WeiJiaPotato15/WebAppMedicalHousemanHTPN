@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 
 from lib.auth import require_admin
-from lib.constants import WARD_GROUPS, now_iso
+from lib.constants import WARD_GROUPS, now_iso, safe_secret
 from lib.db import get_store
 from lib.models import AuditEntry, Officer
 
@@ -69,8 +69,11 @@ def main() -> None:
 
     # ---- Bulk edit grid --------------------------------------------------- #
     eop_dates = store.list_eop_dates()
+    leave_counts = store.list_leave_counts()
+    cap = int(safe_secret("app", "leave_cap", 10))
     df = pd.DataFrame([o.model_dump() for o in officers])
     df["eop_date"] = df["ic_number"].map(lambda ic: eop_dates.get(ic))
+    df["leaves_used"] = df["ic_number"].map(lambda ic: leave_counts.get(ic, 0))
     edited = st.data_editor(
         df,
         column_config={
@@ -88,9 +91,13 @@ def main() -> None:
                 "EOP date (auto)", disabled=True,
                 help="Earliest date you assigned the EOP shift to this HO. Updates automatically.",
             ),
+            "leaves_used": st.column_config.NumberColumn(
+                f"MC/EL used (cap {cap})", disabled=True,
+                help=f"Cumulative MC/EL days since posting started. Cap is {cap}.",
+            ),
         },
         column_order=("ic_number", "name", "ward_group", "posting_start_date",
-                      "phone", "active", "eop_date"),
+                      "phone", "active", "eop_date", "leaves_used"),
         width="stretch",
         hide_index=True,
         num_rows="fixed",
