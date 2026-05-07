@@ -117,19 +117,39 @@ def test_publish_week_flips_flag():
 
 
 def test_legacy_week_without_template_is_published():
-    # Backward compat: weeks that have assignments but no template are
-    # treated as published (predates the draft/publish workflow).
+    # Backward compat: past/current weeks without a template are treated as
+    # published (predates the draft/publish workflow).
+    from datetime import timedelta
     s = fresh_store()
     s.upsert_officer(Officer(ic_number=IC_A, name="A", posting_start_date=date(2026, 1, 1)))
-    monday = date(2026, 5, 4)
-    s.set_assignment(IC_A, monday, "OH W1", "leader@x.com")
-    assert s.is_week_published(monday) is True
+    today = date.today()
+    past_monday = today - timedelta(days=today.weekday() + 14)  # 2 weeks ago Monday
+    s.set_assignment(IC_A, past_monday, "OH W1", "leader@x.com")
+    assert s.is_week_published(past_monday) is True
+
+
+def test_future_week_without_template_is_implicit_draft():
+    # New rule: a Monday after today's Monday with no explicit template is
+    # treated as a draft, so admins editing a future week directly still get
+    # the publish-gate without first clicking "Create roster for next week".
+    from datetime import timedelta
+    s = fresh_store()
+    today = date.today()
+    today_monday = today - timedelta(days=today.weekday())
+    future_monday = today_monday + timedelta(days=14)
+    assert s.get_week_template(future_monday) is None  # no explicit template
+    assert s.is_week_published(future_monday) is False
 
 
 def test_publish_week_no_template_is_noop():
+    # publish_week on a no-template week is a no-op (legacy weeks are already
+    # implicitly published; future weeks without templates stay drafts).
+    from datetime import timedelta
     s = fresh_store()
-    s.publish_week(date(2026, 5, 11), "leader@x.com")  # does not raise
-    assert s.is_week_published(date(2026, 5, 11)) is True
+    today = date.today()
+    past_monday = today - timedelta(days=today.weekday() + 14)
+    s.publish_week(past_monday, "leader@x.com")  # does not raise
+    assert s.is_week_published(past_monday) is True  # was already published
 
 
 def test_list_eop_dates_returns_earliest_per_officer():

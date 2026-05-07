@@ -225,8 +225,8 @@ def main() -> None:
         st.cache_data.clear()
         st.rerun()
 
-    # ---- Publish (only when current view is a draft) ----------------------- #
-    if not is_published and store.get_week_template(monday) is not None:
+    # ---- Publish (whenever the current view is a draft) ------------------- #
+    if not is_published:
         st.divider()
         cl, cr = st.columns([4, 2])
         cl.warning(
@@ -235,6 +235,14 @@ def main() -> None:
         )
         if cr.button("✅ Publish this week", type="primary",
                      key=f"publish_{monday.isoformat()}"):
+            # If the week is an implicit draft (future week, no template yet),
+            # snapshot current officer order before flipping the flag.
+            if store.get_week_template(monday) is None:
+                store.create_week_template(
+                    monday=monday,
+                    officer_ic_numbers=[o.ic_number for o in officers],
+                    actor_email=user.email,
+                )
             store.publish_week(monday=monday, actor_email=user.email)
             st.cache_data.clear()
             st.toast(f"Published {week_label(monday)}.", icon="📢")

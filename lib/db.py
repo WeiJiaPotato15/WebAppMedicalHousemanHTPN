@@ -141,9 +141,22 @@ class Store(ABC):
         """Return the set of Mondays whose template is currently a draft."""
 
     def is_week_published(self, monday: date) -> bool:
-        """A week is published if it has no template (legacy / direct edits)
-        OR its template's is_published flag is True."""
-        return monday not in self.list_unpublished_weeks()
+        """Publish state for a week.
+
+        Rules:
+        - Has explicit template + is_published flag set → that flag wins.
+        - Has explicit template + flag unset → draft.
+        - No template, week is past or current → published (legacy/back-compat).
+        - No template, week is in the future → draft (admin hasn't published yet).
+        """
+        from datetime import timedelta
+        if monday in self.list_unpublished_weeks():
+            return False
+        if self.get_week_template(monday) is not None:
+            return True  # explicit template, already published
+        today = date.today()
+        today_monday = today - timedelta(days=today.weekday())
+        return monday <= today_monday
 
     def has_week_data(self, monday: date) -> bool:
         if self.get_week_template(monday) is not None:
