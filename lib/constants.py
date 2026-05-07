@@ -4,6 +4,11 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 from typing import Iterable
 
+# Allowed ward groups for Officer.ward_group. Drives the dropdown on the
+# Officers page; existing officers with values outside this list still load
+# (Pydantic doesn't enforce membership), but the UI only offers these.
+WARD_GROUPS: list[str] = ["W1", "W2", "W3", "W6"]
+
 LEAVE_DUTY_TYPES = {"MC/EL"}  # counted toward the 10-cap
 ANNUAL_LEAVE_TYPES = {"AL"}    # tracked but separate
 NON_WORK_DUTY_TYPES = {"OFF", "PC", "AL", "MC/EL", "COURSE", "EOP"}

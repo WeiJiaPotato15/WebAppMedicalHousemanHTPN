@@ -166,7 +166,7 @@ class MemoryStore(Store):
                 Officer(ic_number="920202075555", name="Dr. Ben",
                         posting_start_date=_d(2026, 2, 15), ward_group="W2"),
                 Officer(ic_number="910303095555", name="Dr. Chen",
-                        posting_start_date=_d(2026, 3, 1), ward_group="PERI"),
+                        posting_start_date=_d(2026, 3, 1), ward_group="W3"),
             ]
             for o in samples:
                 self.upsert_officer(o)

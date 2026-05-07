@@ -1,8 +1,7 @@
 """Admin: manage House Officer records (add/edit/deactivate).
 
-ID is the Malaysian IC number. Ward group is a dropdown sourced from existing
-officer ward_groups + ward attributes from the shift master, plus a sentinel
-"+ Add new..." option that reveals a free-text input."""
+ID is the Malaysian IC number. Ward group is a fixed dropdown of the four
+medical wards used at HTPN: W1, W2, W3, W6."""
 from __future__ import annotations
 
 from datetime import date
@@ -11,26 +10,11 @@ import pandas as pd
 import streamlit as st
 
 from lib.auth import require_admin
-from lib.constants import now_iso
+from lib.constants import WARD_GROUPS, now_iso
 from lib.db import get_store
 from lib.models import AuditEntry, Officer
 
 st.set_page_config(page_title="Officers — HTPN", page_icon="👥", layout="wide")
-ADD_NEW_SENTINEL = "+ Add new ward group…"
-
-
-def _ward_group_options(officers: list[Officer], shifts) -> list[str]:
-    """Build a sorted list of distinct ward group choices for the dropdown."""
-    from_officers = {o.ward_group for o in officers if o.ward_group}
-    from_shifts = {s.ward for s in shifts if s.ward and "+" not in s.ward}
-    options = sorted(from_officers | from_shifts, key=_ward_sort_key)
-    return options
-
-
-def _ward_sort_key(w: str):
-    if w.startswith("W") and w[1:].isdigit():
-        return (0, int(w[1:]))
-    return (1, w)
 
 
 def main() -> None:
@@ -40,8 +24,6 @@ def main() -> None:
 
     store = get_store()
     officers = store.list_officers()
-    shifts = store.list_shifts()
-    ward_options = _ward_group_options(officers, shifts)
 
     # ---- Add form ---------------------------------------------------------- #
     with st.expander("➕ Add a new house officer", expanded=False):
@@ -57,16 +39,13 @@ def main() -> None:
             phone = c4.text_input("Phone")
             ward_choice = c5.selectbox(
                 "Ward group",
-                options=[""] + ward_options + [ADD_NEW_SENTINEL],
+                options=[""] + WARD_GROUPS,
                 index=0,
                 help="Primary ward for row grouping in the roster.",
             )
-            ward_new = ""
-            if ward_choice == ADD_NEW_SENTINEL:
-                ward_new = st.text_input("New ward group name").strip()
             submitted = st.form_submit_button("Add", type="primary")
             if submitted:
-                ward_group = (ward_new or None) if ward_choice == ADD_NEW_SENTINEL else (ward_choice or None)
+                ward_group = ward_choice or None
                 if not ic_number or not name:
                     st.error("IC number and name are required.")
                 elif store and any(o.ic_number == ic_number for o in officers):
@@ -102,8 +81,8 @@ def main() -> None:
             "active": st.column_config.CheckboxColumn("Active"),
             "ward_group": st.column_config.SelectboxColumn(
                 "Ward group",
-                options=[None] + ward_options,
-                help="W1, W2, MOPD, PERI, … (add new ones via the form above).",
+                options=[None] + WARD_GROUPS,
+                help="One of W1, W2, W3, W6.",
             ),
             "eop_date": st.column_config.DateColumn(
                 "EOP date (auto)", disabled=True,
