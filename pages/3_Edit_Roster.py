@@ -382,11 +382,13 @@ def main() -> None:
         st.plotly_chart(
             staff_per_station_per_day_figure(df, min_per_ward),
             width="stretch", config={"displayModeBar": False},
+            key=f"edit_roster_coverage_{monday.isoformat()}",
         )
     with c2:
         st.plotly_chart(
             hours_per_staff_figure(df),
             width="stretch", config={"displayModeBar": False},
+            key=f"edit_roster_hours_{monday.isoformat()}",
         )
 
 
