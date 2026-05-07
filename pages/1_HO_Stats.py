@@ -1,7 +1,7 @@
 """Public per-HO self-service stats page. No login required."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import pandas as pd
 import streamlit as st
@@ -44,8 +44,25 @@ def main() -> None:
         st.info("No house officers registered yet.")
         return
 
-    name_to_email = {o.name: o.email for o in officers}
-    pick = st.selectbox("Your name", list(name_to_email.keys()))
+    # Hide HOs whose End-of-Posting was more than ~1 month ago, so the dropdown
+    # doesn't pile up over time. Recently-departed HOs (within 30 days) stay
+    # visible so they can review their own past leaves.
+    eop_dates = store.list_eop_dates()
+    today = date.today()
+    cutoff = today - timedelta(days=30)
+    visible = [
+        o for o in officers
+        if (eop_dates.get(o.email) is None) or (eop_dates[o.email] >= cutoff)
+    ]
+    hidden = len(officers) - len(visible)
+    if not visible:
+        st.info("No active or recently-departed house officers to display.")
+        return
+
+    name_to_email = {o.name: o.email for o in visible}
+    pick = st.selectbox("Your name", list(name_to_email.keys()),
+                        help=(f"{hidden} HO(s) hidden — left medical posting more than 30 days ago"
+                              if hidden else None))
     if not pick:
         return
     email = name_to_email[pick]

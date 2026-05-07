@@ -56,7 +56,9 @@ def main() -> None:
         st.info("No officers yet — add one above.")
         return
 
+    eop_dates = store.list_eop_dates()
     df = pd.DataFrame([o.model_dump() for o in officers])
+    df["eop_date"] = df["email"].map(lambda e: eop_dates.get(e))
     edited = st.data_editor(
         df,
         column_config={
@@ -68,6 +70,10 @@ def main() -> None:
             "active": st.column_config.CheckboxColumn("Active"),
             "ward_group": st.column_config.TextColumn(
                 "Ward group", help="W1, W2, MOPD, PERI, … — primary row grouping in the roster."
+            ),
+            "eop_date": st.column_config.DateColumn(
+                "EOP date (auto)", disabled=True,
+                help="Earliest date you assigned the EOP shift to this HO. Updates automatically.",
             ),
         },
         width="stretch",

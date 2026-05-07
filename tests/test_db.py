@@ -93,3 +93,26 @@ def test_create_week_template_overwrites():
     s.create_week_template(monday, ["a@x.com", "b@x.com"], "leader@x.com")
     s.create_week_template(monday, ["c@x.com"], "leader@x.com")
     assert s.get_week_template(monday) == ["c@x.com"]
+
+
+def test_list_eop_dates_returns_earliest_per_officer():
+    s = fresh_store()
+    s.upsert_officer(Officer(email="a@x.com", name="A", posting_start_date=date(2026, 1, 1)))
+    s.upsert_officer(Officer(email="b@x.com", name="B", posting_start_date=date(2026, 1, 1)))
+    # Alice has two EOP cells (admin error or correction); take the earlier one.
+    s.set_assignment("a@x.com", date(2026, 5, 28), "EOP", "leader@x.com")
+    s.set_assignment("a@x.com", date(2026, 5, 29), "EOP", "leader@x.com")
+    # Ben has only an OFF day, no EOP — should not appear in result.
+    s.set_assignment("b@x.com", date(2026, 6, 1), "OFF", "leader@x.com")
+    out = s.list_eop_dates()
+    assert out == {"a@x.com": date(2026, 5, 28)}
+
+
+def test_list_eop_dates_empty_when_no_eop_codes():
+    # Edge case: no shift in master has duty_type=EOP.
+    s = fresh_store()
+    # remove the seeded EOP code
+    s.delete_shift("EOP")
+    s.upsert_officer(Officer(email="a@x.com", name="A", posting_start_date=date(2026, 1, 1)))
+    s.set_assignment("a@x.com", date(2026, 5, 28), "OFF", "leader@x.com")
+    assert s.list_eop_dates() == {}

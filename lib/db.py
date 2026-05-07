@@ -75,6 +75,30 @@ class Store(ABC):
     @abstractmethod
     def add_audit(self, entry: AuditEntry) -> None: ...
 
+    # End-of-posting dates. Derived from assignments — no separate stored field.
+    def list_eop_dates(self) -> dict[str, date]:
+        """Return {email: earliest_EOP_date} for every officer with at least one
+        assignment whose shift has duty_type == "EOP". Derived live, so always
+        consistent with the current roster — no sync logic needed.
+
+        Default implementation iterates per-officer; backends can override with a
+        single scan if N round-trips are expensive."""
+        eop_codes = {s.code for s in self.list_shifts() if s.duty_type == "EOP"}
+        if not eop_codes:
+            return {}
+        from datetime import timedelta
+        today = date.today()
+        start = today - timedelta(days=730)
+        end = today + timedelta(days=365)
+        out: dict[str, date] = {}
+        for o in self.list_officers():
+            for a in self.get_officer_assignments(o.email, start, end):
+                if a.shift_code in eop_codes:
+                    cur = out.get(o.email)
+                    if cur is None or a.on_date < cur:
+                        out[o.email] = a.on_date
+        return out
+
     # Week templates — snapshot of officer row order at the moment a week is "created".
     @abstractmethod
     def get_week_template(self, monday: date) -> Optional[list[str]]:
@@ -242,6 +266,20 @@ class MemoryStore(Store):
             target=f"week:{monday.isoformat()}",
             before=None, after=f"{len(officer_emails)} officers",
         ))
+
+    # EOP — direct dict scan
+    def list_eop_dates(self):
+        eop_codes = {s.code for s in self.list_shifts() if s.duty_type == "EOP"}
+        if not eop_codes:
+            return {}
+        out: dict[str, date] = {}
+        for (email, on_date), a in self._roster.items():
+            if a.shift_code not in eop_codes:
+                continue
+            cur = out.get(email)
+            if cur is None or on_date < cur:
+                out[email] = on_date
+        return out
 
 
 # ---- DynamoDB implementation --------------------------------------------- #
@@ -484,6 +522,28 @@ class DynamoStore(Store):
             target=f"week:{monday.isoformat()}",
             before=None, after=f"{len(officer_emails)} officers",
         ))
+
+    # EOP — single scan + Python-side filter (table is small)
+    def list_eop_dates(self):
+        eop_codes = {s.code for s in self.list_shifts() if s.duty_type == "EOP"}
+        if not eop_codes:
+            return {}
+        resp = self._t(T_ROSTER).scan()
+        out: dict[str, date] = {}
+        for it in resp.get("Items", []):
+            if not it.get("pk", "").startswith("HO#"):
+                continue  # skip WEEK#... TEMPLATE rows
+            if it.get("shift_code") not in eop_codes:
+                continue
+            try:
+                on_date = date.fromisoformat(it["sk"])
+            except (ValueError, KeyError):
+                continue
+            email = it["pk"].split("#", 1)[1]
+            cur = out.get(email)
+            if cur is None or on_date < cur:
+                out[email] = on_date
+        return out
 
 
 # ---- Factory -------------------------------------------------------------- #

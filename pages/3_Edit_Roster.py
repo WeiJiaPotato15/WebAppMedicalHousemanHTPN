@@ -211,14 +211,25 @@ def main() -> None:
         )
         if c2.button("➕ Create roster for next week", type="primary",
                      key=f"create_next_{next_monday.isoformat()}"):
+            # Drop officers whose End-of-Posting is before next Monday — they've
+            # already finished their rotation, so don't carry them forward.
+            eop_dates = store.list_eop_dates()
+            carried = [
+                o.email for o in officers
+                if (eop_dates.get(o.email) is None) or (eop_dates[o.email] >= next_monday)
+            ]
+            dropped = len(officers) - len(carried)
             store.create_week_template(
                 monday=next_monday,
-                officer_emails=[o.email for o in officers],
+                officer_emails=carried,
                 actor_email=user.email,
             )
             st.session_state.edit_monday = next_monday
             st.cache_data.clear()
-            st.toast(f"Started next week ({week_label(next_monday)}). Switched to it.", icon="🆕")
+            msg = f"Started next week ({week_label(next_monday)})."
+            if dropped:
+                msg += f" Dropped {dropped} HO(s) past EOP."
+            st.toast(msg, icon="🆕")
             st.rerun()
     elif current_has_data and next_has_data:
         st.caption(f"Next week ({week_label(next_monday)}) is already started — use **Next ▶** to view.")
