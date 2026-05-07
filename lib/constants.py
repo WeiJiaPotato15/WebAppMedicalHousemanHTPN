@@ -9,6 +9,16 @@ from typing import Iterable
 # (Pydantic doesn't enforce membership), but the UI only offers these.
 WARD_GROUPS: list[str] = ["W1", "W2", "W3", "W6"]
 
+# Categories that must have ≥1 HO every day. Zero counts in these rows of the
+# Edit Roster's "Staff per category per day" table are highlighted red.
+CRITICAL_COVERAGE_CATEGORIES: set[str] = {
+    "W1", "W2", "W3", "OC", "PERI", "MOPD", "PENDING ED",
+}
+
+# Categories that allow zero coverage on weekends (Sat/Sun) — outpatient
+# clinics that don't run on weekends, etc.
+WEEKEND_OK_CATEGORIES: set[str] = {"MOPD"}
+
 LEAVE_DUTY_TYPES = {"MC/EL"}  # counted toward the 10-cap
 ANNUAL_LEAVE_TYPES = {"AL"}    # tracked but separate
 NON_WORK_DUTY_TYPES = {"OFF", "PC", "AL", "MC/EL", "COURSE", "EOP"}

@@ -18,7 +18,14 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
 from lib.auth import require_admin
-from lib.constants import safe_secret, week_dates, week_label, week_start
+from lib.constants import (
+    CRITICAL_COVERAGE_CATEGORIES,
+    WEEKEND_OK_CATEGORIES,
+    safe_secret,
+    week_dates,
+    week_label,
+    week_start,
+)
 from lib.db import get_store
 from lib.presence import beat, render_sidebar
 from lib.viz import (
@@ -263,12 +270,28 @@ def main() -> None:
     if cat_table.empty:
         st.info("No assignments yet to summarize.")
     else:
+        def _highlight_critical_zeros(row):
+            cat = row.name
+            if cat not in CRITICAL_COVERAGE_CATEGORIES:
+                return [""] * len(row)
+            out = []
+            for col, val in row.items():
+                is_zero = isinstance(val, (int, float)) and val == 0
+                if not is_zero:
+                    out.append("")
+                    continue
+                # Per-category weekend exemption (e.g. MOPD doesn't run weekends).
+                is_weekend = isinstance(col, str) and (
+                    col.startswith("Sat") or col.startswith("Sun")
+                )
+                if is_weekend and cat in WEEKEND_OK_CATEGORIES:
+                    out.append("")
+                    continue
+                out.append("background-color: #fee2e2; color: #991b1b")
+            return out
+
         st.dataframe(
-            cat_table.style.map(
-                lambda v: "background-color: #fee2e2; color: #991b1b"
-                if isinstance(v, (int, float)) and v == 0
-                else ""
-            ),
+            cat_table.style.apply(_highlight_critical_zeros, axis=1),
             width="stretch",
         )
 
