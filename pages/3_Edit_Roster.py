@@ -2,12 +2,13 @@
 
 Rows = officers (filtered to those whose posting has started by week's end and
 whose EOP, if any, is not before week's start). Columns = days. Each cell is
-a dropdown populated from the master shift list. Writes to cells after a
-freshly-set EOP are rejected with a toast — once an HO is marked end-of-posting
-on day D, days D+1…D+6 cannot be assigned.
+a dropdown populated from the master shift list. Edits stay local until the
+admin clicks **Save** — at that point writes to cells before posting start or
+after a set EOP are rejected with a toast and the editor is reset to the
+DB state (so a rejected edit doesn't loop on re-saves).
 
-Auto-refresh every 5s pulls in other admins' changes; presence sidebar shows
-who else is editing.
+Editing is single-admin by policy — no autorefresh, presence sidebar shows
+anyone who happens to be on the page.
 """
 from __future__ import annotations
 
@@ -15,7 +16,6 @@ from datetime import date, timedelta
 
 import pandas as pd
 import streamlit as st
-from streamlit_autorefresh import st_autorefresh
 
 from lib.auth import require_admin
 from lib.constants import (
@@ -45,13 +45,19 @@ PAGE_NAME = "Edit Roster"
 
 def main() -> None:
     user = require_admin()
-    st_autorefresh(interval=5_000, key="edit_roster_refresh")
     beat(user.email, user.name, PAGE_NAME)
     render_sidebar(user.email)
 
     st.title("📝 Edit Roster")
-    st.caption(f"Signed in as {user.name} ({user.email}). Changes save instantly. "
-               "All edits are logged in the Activity page.")
+    st.caption(f"Signed in as {user.name} ({user.email}). Make your edits, then "
+               "click **💾 Save changes** to persist. All saves are logged in the "
+               "Activity page.")
+
+    # Bumped after every save so the data_editor widget reloads from the fresh
+    # DB state. Without this, rejected edits stay visible in the editor and a
+    # repeat save would re-trigger the same warning.
+    if "edit_roster_version" not in st.session_state:
+        st.session_state.edit_roster_version = 0
 
     if "edit_monday" not in st.session_state:
         st.session_state.edit_monday = week_start(date.today())
@@ -174,6 +180,7 @@ def main() -> None:
     for c in day_cols:
         column_config[c] = st.column_config.SelectboxColumn(c, options=shift_options, required=False)
 
+    ver = st.session_state.edit_roster_version
     edited = st.data_editor(
         grid,
         column_config=column_config,
@@ -181,7 +188,7 @@ def main() -> None:
         width="stretch",
         hide_index=True,
         num_rows="fixed",
-        key=f"editor_{monday.isoformat()}",
+        key=f"editor_{monday.isoformat()}_{ver}",
     )
 
     # Compute effective EOP per officer for the post-save validation:
@@ -207,8 +214,20 @@ def main() -> None:
             cands.append(in_week_eop[ic])
         return min(cands) if cands else None
 
-    # Diff and persist
-    if not edited.equals(grid):
+    # Save bar: only persist on explicit click. Show a subtle "unsaved" hint
+    # whenever the editor diverges from the loaded DB state.
+    has_changes = not edited.equals(grid)
+    save_col, hint_col = st.columns([1, 5])
+    save_clicked = save_col.button(
+        "💾 Save changes",
+        type="primary",
+        disabled=not has_changes,
+        key=f"save_{monday.isoformat()}_{ver}",
+    )
+    if has_changes and not save_clicked:
+        hint_col.caption("⚠ You have unsaved changes — click **Save changes** to persist.")
+
+    if save_clicked:
         saved = 0
         blocked_pre: list[str] = []
         blocked_post: list[str] = []
@@ -253,6 +272,10 @@ def main() -> None:
                 + "; ".join(blocked_post[:5])
                 + (f"; +{len(blocked_post)-5} more" if len(blocked_post) > 5 else "")
             )
+        # Bump the editor version so the widget reloads from fresh DB state on
+        # rerun. Critical when there were rejections — otherwise the data_editor
+        # would still hold the rejected edit and a re-save would re-warn.
+        st.session_state.edit_roster_version += 1
         st.cache_data.clear()
         st.rerun()
 
@@ -288,6 +311,7 @@ def main() -> None:
             if not code:
                 continue
             s = shifts_by_code.get(code)
+            color = (s.color or DUTY_COLORS.get(s.duty_type, "#94a3b8")) if s else "#94a3b8"
             preview_rows.append({
                 "ic_number": ic,
                 "name": r["name"],
@@ -296,6 +320,7 @@ def main() -> None:
                 "duty_type": s.duty_type if s else "?",
                 "ward": s.ward if s else None,
                 "hours": s.hours if s else 0,
+                "color": color,
             })
     if preview_rows:
         preview_df = pd.DataFrame(preview_rows)

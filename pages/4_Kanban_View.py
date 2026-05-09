@@ -1,16 +1,11 @@
 """Admin: kanban-by-day drag-and-drop view (secondary editor).
 
-Officers are grouped by **duty type** (EH, OH, OC, MOPD, PERI, OFF, …) rather
-than by individual shift code, so the column count stays manageable. When an
-admin drags an officer between duty-type columns, the page auto-resolves the
-specific shift code based on the officer's ward_group:
+Officers are bucketed by **individual shift code** (EH W1, EH W2, MOPD OH W3,
+…), not by duty type. Each column header is the exact shift code, so dropping
+an officer into a column writes that code directly — no auto-resolution. An
+"(unassigned)" column holds officers with no shift on the selected day.
 
-- single-code duty types (OFF, PC, AL, MC/EL, COURSE, EOP) → the lone code
-- ward-attached (EH, OH, TAG) → match the officer's ward_group
-- MOPD / PERI / PENDING ED with multiple variants → prefer OH (office hours)
-- OC and unmatched cases → first available shift code, alphabetically
-
-For exact code-level edits, use the Edit Roster page.
+For free-text edits use Edit Roster.
 """
 from __future__ import annotations
 
@@ -28,32 +23,13 @@ from lib.presence import beat, render_sidebar
 st.set_page_config(page_title="Kanban — HTPN", page_icon="🎯", layout="wide")
 PAGE_NAME = "Kanban"
 
-# Visual ordering of duty-type columns. Anything not listed here falls to the
-# end alphabetically.
+# Visual ordering of the duty-type *groups* the columns are sorted by.
+# Anything not listed falls to the end alphabetically by duty_type.
 DUTY_TYPE_ORDER = [
-    "(unassigned)",
     "EH", "OH", "OC", "TAG",
     "MOPD", "PERI", "PENDING ED",
     "AL", "MC/EL", "OFF", "PC", "COURSE", "EOP",
 ]
-
-
-def _resolve_shift_code(duty_type: str, officer, candidates: list) -> str | None:
-    """Pick a single shift code for (duty_type, officer)."""
-    if duty_type == "(unassigned)" or not candidates:
-        return None
-    if len(candidates) == 1:
-        return candidates[0].code
-    # Prefer codes whose ward matches the officer's ward_group
-    if officer.ward_group:
-        ward_match = [c for c in candidates if c.ward == officer.ward_group]
-        if ward_match:
-            # Within a ward (e.g. MOPD W1 has EH and OH variants), prefer OH
-            oh_first = [c for c in ward_match if " OH " in f" {c.code} " or c.code.endswith("OH")]
-            return (oh_first or ward_match)[0].code
-    # No ward match: prefer OH variant overall, else alphabetical first
-    oh_first = [c for c in candidates if " OH " in f" {c.code} " or c.code.endswith("OH")]
-    return (oh_first or candidates)[0].code
 
 
 def main() -> None:
@@ -64,9 +40,9 @@ def main() -> None:
 
     st.title("🎯 Kanban view")
     st.caption(
-        "Visual rebalance of the week, grouped by duty type. Drag officer chips "
-        "between columns; the specific shift code is auto-picked from the "
-        "officer's ward group. For free-text edits use Edit Roster."
+        "Drag an officer chip into a shift-code column to assign that exact "
+        "code. Columns are grouped by duty type (EH, OH, …). For free-text "
+        "edits use Edit Roster."
     )
 
     if "kanban_monday" not in st.session_state:
@@ -89,51 +65,61 @@ def main() -> None:
         st.info("Add officers and shift codes first.")
         return
 
-    code_to_duty = {s.code: s.duty_type for s in shifts}
-    by_duty: dict[str, list] = {}
-    for s in shifts:
-        by_duty.setdefault(s.duty_type, []).append(s)
-
+    shift_by_code = {s.code: s for s in shifts}
     name_by_ic = {o.ic_number: o.name for o in officers}
-    officer_by_ic = {o.ic_number: o for o in officers}
 
     # Pick which day to rebalance.
     day = st.selectbox("Day", week_dates(monday), format_func=lambda d: d.strftime("%a %d %b"))
 
-    # Build buckets keyed by duty_type.
-    buckets: dict[str, list[str]] = {"(unassigned)": []}
-    for dt in by_duty:
-        buckets[dt] = []
+    # Build buckets keyed by shift_code (one per known code) plus "(unassigned)".
+    UNASSIGNED = "(unassigned)"
+    buckets: dict[str, list[str]] = {UNASSIGNED: []}
+    for s in shifts:
+        buckets[s.code] = []
+
     by_ic = {a.ic_number: a for a in assignments if a.on_date == day}
     for o in officers:
-        if o.ic_number in by_ic:
-            dt = code_to_duty.get(by_ic[o.ic_number].shift_code, "?")
-            buckets.setdefault(dt, []).append(o.name)
+        a = by_ic.get(o.ic_number)
+        if a and a.shift_code in buckets:
+            buckets[a.shift_code].append(o.name)
+        elif a:
+            # Officer is assigned a code that's no longer in the master shift
+            # list — surface it as its own column so admins can move them out.
+            buckets.setdefault(a.shift_code, []).append(o.name)
         else:
-            buckets["(unassigned)"].append(o.name)
+            buckets[UNASSIGNED].append(o.name)
 
-    # Order columns: known list first, then any unknown duty types alphabetical.
-    ordered_keys = [k for k in DUTY_TYPE_ORDER if k in buckets]
-    extras = sorted(k for k in buckets if k not in DUTY_TYPE_ORDER)
-    items = [{"header": k, "items": buckets[k]} for k in ordered_keys + extras]
+    # Order columns: unassigned first, then by duty_type group, then by code.
+    duty_rank = {dt: i for i, dt in enumerate(DUTY_TYPE_ORDER)}
+
+    def col_key(code: str) -> tuple:
+        if code == UNASSIGNED:
+            return (-1, "", "")
+        s = shift_by_code.get(code)
+        if s is None:
+            return (len(DUTY_TYPE_ORDER) + 1, "", code)
+        rank = duty_rank.get(s.duty_type, len(DUTY_TYPE_ORDER))
+        return (rank, s.duty_type, code)
+
+    ordered_codes = sorted(buckets.keys(), key=col_key)
+    items = [{"header": k, "items": buckets[k]} for k in ordered_codes]
 
     sorted_items = sort_items(items, multi_containers=True, direction="vertical")
 
-    # Diff: who moved between duty types?
+    # Diff: who moved between shift codes?
     name_to_ic = {v: k for k, v in name_by_ic.items()}
     moves = 0
     for container in sorted_items:
-        new_duty = container["header"]
+        new_label = container["header"]
+        new_code = None if new_label == UNASSIGNED else new_label
         for name in container["items"]:
             ic = name_to_ic.get(name)
             if not ic:
                 continue
             current = by_ic.get(ic)
-            current_duty = code_to_duty.get(current.shift_code, "?") if current else "(unassigned)"
-            if new_duty == current_duty:
+            current_code = current.shift_code if current else None
+            if new_code == current_code:
                 continue  # no change
-            officer = officer_by_ic.get(ic)
-            new_code = _resolve_shift_code(new_duty, officer, by_duty.get(new_duty, []))
             store.set_assignment(
                 ic_number=ic,
                 on_date=day,
