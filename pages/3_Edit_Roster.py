@@ -2,12 +2,19 @@
 
 Rows = officers (filtered to those whose posting has started by week's end and
 whose EOP, if any, is not before week's start). Columns = days. Each cell is
-a dropdown populated from the master shift list. Edits stay local until the
-admin clicks **Save** — at that point writes to cells before posting start or
-after a set EOP are rejected with a toast and the editor is reset to the
-DB state (so a rejected edit doesn't loop on re-saves).
+a dropdown populated from the master shift list.
 
-Editing is single-admin by policy — no autorefresh, presence sidebar shows
+Workflow is **Edit → Preview → Save**:
+- Edits stay local in the data_editor until either button is clicked.
+- 🔍 Preview snapshots the current edits and renders the colour heatmap,
+  hours summary, and per-category counts off that snapshot. Until Preview is
+  clicked, those panels show the DB state — typing in cells doesn't trigger
+  any chart re-render, so editing stays smooth.
+- 💾 Save persists changes. Writes to cells before posting start or after a
+  set EOP are rejected and the rejection alert is stored in session state so
+  it stays visible across the post-save rerun (until the admin dismisses it).
+
+Editing is single-admin by policy — no autorefresh; presence sidebar shows
 anyone who happens to be on the page.
 """
 from __future__ import annotations
@@ -49,15 +56,26 @@ def main() -> None:
     render_sidebar(user.email)
 
     st.title("📝 Edit Roster")
-    st.caption(f"Signed in as {user.name} ({user.email}). Make your edits, then "
-               "click **💾 Save changes** to persist. All saves are logged in the "
-               "Activity page.")
+    st.caption(
+        f"Signed in as {user.name} ({user.email}). "
+        "**Workflow:** edit cells → **🔍 Preview** to refresh the heatmap & "
+        "summaries below → **💾 Save changes** to persist. The previews don't "
+        "auto-refresh while you type, so the editor stays responsive. All saves "
+        "are logged in the Activity page."
+    )
 
-    # Bumped after every save so the data_editor widget reloads from the fresh
-    # DB state. Without this, rejected edits stay visible in the editor and a
-    # repeat save would re-trigger the same warning.
-    if "edit_roster_version" not in st.session_state:
-        st.session_state.edit_roster_version = 0
+    # Editor version: bumped after every save so data_editor reloads from the
+    # fresh DB state. Without this, rejected edits stay visible in the editor
+    # and a repeat save would re-trigger the same warning.
+    st.session_state.setdefault("edit_roster_version", 0)
+    # Snapshot of `edited` taken when 🔍 Preview is clicked. Used to feed the
+    # heatmap / hours / category panels so they don't recompute on every cell
+    # keystroke. None means "fall back to the DB state".
+    st.session_state.setdefault("edit_roster_preview_df", None)
+    st.session_state.setdefault("edit_roster_preview_monday", None)
+    # Last save's saved-count + blocked lists, kept across the post-save rerun
+    # so the admin actually sees them (st.rerun() otherwise wipes mid-run UI).
+    st.session_state.setdefault("edit_roster_last_save", None)
 
     if "edit_monday" not in st.session_state:
         st.session_state.edit_monday = week_start(date.today())
@@ -71,6 +89,11 @@ def main() -> None:
         st.session_state.edit_monday = week_start(date.today())
     monday = st.session_state.edit_monday
     week_sunday = monday + timedelta(days=6)
+    # If the admin navigated to a different week, the previous preview snapshot
+    # belongs to that other week and shouldn't bleed across.
+    if st.session_state.edit_roster_preview_monday != monday:
+        st.session_state.edit_roster_preview_df = None
+        st.session_state.edit_roster_preview_monday = monday
     is_published = get_store().is_week_published(monday)
     badge = "" if is_published else "  📝 DRAFT — not visible to public"
     clabel.subheader(f"Week of {week_label(monday)}{badge}")
@@ -180,6 +203,33 @@ def main() -> None:
     for c in day_cols:
         column_config[c] = st.column_config.SelectboxColumn(c, options=shift_options, required=False)
 
+    # ---- Persisted alerts from the previous Save click -------------------- #
+    # Rendered BEFORE the editor so they're impossible to miss, and they stay
+    # visible across reruns until the admin explicitly dismisses them.
+    last_save = st.session_state.edit_roster_last_save
+    if last_save is not None:
+        if last_save.get("saved"):
+            st.success(f"✅ Saved {last_save['saved']} change(s) on the last save.")
+        if last_save.get("blocked_pre"):
+            entries = last_save["blocked_pre"]
+            st.error(
+                f"🚫 **{len(entries)} write(s) blocked — before posting start.** "
+                "These house officers haven't joined yet on those dates: "
+                + "; ".join(entries[:8])
+                + (f"; +{len(entries) - 8} more" if len(entries) > 8 else "")
+            )
+        if last_save.get("blocked_post"):
+            entries = last_save["blocked_post"]
+            st.error(
+                f"🚫 **{len(entries)} write(s) blocked — after EOP.** "
+                "Once an HO is marked end-of-posting, later days are locked: "
+                + "; ".join(entries[:8])
+                + (f"; +{len(entries) - 8} more" if len(entries) > 8 else "")
+            )
+        if st.button("Dismiss alerts", key="edit_roster_dismiss_alerts"):
+            st.session_state.edit_roster_last_save = None
+            st.rerun()
+
     ver = st.session_state.edit_roster_version
     edited = st.data_editor(
         grid,
@@ -214,18 +264,37 @@ def main() -> None:
             cands.append(in_week_eop[ic])
         return min(cands) if cands else None
 
-    # Save bar: only persist on explicit click. Show a subtle "unsaved" hint
-    # whenever the editor diverges from the loaded DB state.
+    # ---- Action bar: Preview + Save --------------------------------------- #
+    # Preview snapshots the current editor df into session state so the panels
+    # below render off a stable copy instead of refreshing on every keystroke.
+    # Save persists the diff and stashes alerts for the post-rerun render.
     has_changes = not edited.equals(grid)
-    save_col, hint_col = st.columns([1, 5])
+    preview_col, save_col, hint_col = st.columns([1, 1, 4])
+    preview_clicked = preview_col.button(
+        "🔍 Preview changes",
+        disabled=not has_changes,
+        key=f"preview_{monday.isoformat()}_{ver}",
+        help="Snapshot your current edits and refresh the heatmap, hours summary, "
+             "and per-category counts below.",
+    )
     save_clicked = save_col.button(
         "💾 Save changes",
         type="primary",
         disabled=not has_changes,
         key=f"save_{monday.isoformat()}_{ver}",
     )
-    if has_changes and not save_clicked:
-        hint_col.caption("⚠ You have unsaved changes — click **Save changes** to persist.")
+    if has_changes and not (save_clicked or preview_clicked):
+        hint_col.caption(
+            "⚠ Unsaved changes — click **🔍 Preview changes** to inspect, "
+            "then **💾 Save changes** to persist."
+        )
+    elif st.session_state.edit_roster_preview_df is not None:
+        hint_col.caption("🔍 Showing previewed changes below — click **💾 Save changes** to persist.")
+
+    if preview_clicked:
+        st.session_state.edit_roster_preview_df = edited.copy()
+        st.session_state.edit_roster_preview_monday = monday
+        st.rerun()
 
     if save_clicked:
         saved = 0
@@ -256,26 +325,20 @@ def main() -> None:
                     actor_email=user.email,
                 )
                 saved += 1
-        if saved:
-            st.toast(f"Saved {saved} change(s).", icon="✅")
-        if blocked_pre:
-            st.warning(
-                f"Blocked {len(blocked_pre)} write(s) before posting start — that HO "
-                f"hasn't joined yet. Rejected: "
-                + "; ".join(blocked_pre[:5])
-                + (f"; +{len(blocked_pre)-5} more" if len(blocked_pre) > 5 else "")
-            )
-        if blocked_post:
-            st.warning(
-                f"Blocked {len(blocked_post)} write(s) to cells after EOP — once an HO "
-                f"is marked end-of-posting, later days are locked. Rejected: "
-                + "; ".join(blocked_post[:5])
-                + (f"; +{len(blocked_post)-5} more" if len(blocked_post) > 5 else "")
-            )
+        # Stash alerts in session state so they survive the rerun. The persisted
+        # block at the top of main() renders them on the next pass and keeps
+        # them visible until the admin clicks Dismiss.
+        st.session_state.edit_roster_last_save = {
+            "saved": saved,
+            "blocked_pre": blocked_pre,
+            "blocked_post": blocked_post,
+        }
         # Bump the editor version so the widget reloads from fresh DB state on
         # rerun. Critical when there were rejections — otherwise the data_editor
         # would still hold the rejected edit and a re-save would re-warn.
         st.session_state.edit_roster_version += 1
+        # The preview snapshot reflects pre-save state and is now stale.
+        st.session_state.edit_roster_preview_df = None
         st.cache_data.clear()
         st.rerun()
 
@@ -302,9 +365,16 @@ def main() -> None:
             st.toast(f"Published {week_label(monday)}.", icon="📢")
             st.rerun()
 
-    # ---- Colored preview of the edited week (Overview-style heatmap) ------ #
+    # ---- Source for the panels below --------------------------------------- #
+    # Use the snapshot taken at last 🔍 Preview click; otherwise show DB state.
+    # This keeps the heavy chart re-renders off the editing hot path.
+    snapshot = st.session_state.edit_roster_preview_df
+    panel_source = snapshot if snapshot is not None else grid
+    panel_label = "previewed edits" if snapshot is not None else "saved roster"
+
+    # ---- Colored preview of the week (Overview-style heatmap) ------------- #
     preview_rows = []
-    for _, r in edited.iterrows():
+    for _, r in panel_source.iterrows():
         ic = r["ic_number"]
         for d, dlabel in zip(days, day_cols):
             code = r[dlabel]
@@ -325,12 +395,16 @@ def main() -> None:
     if preview_rows:
         preview_df = pd.DataFrame(preview_rows)
         st.subheader("Color preview")
-        st.caption("Mirrors the public Overview's colour-coded view of this week, "
-                   "based on the editor above.")
+        st.caption(
+            f"Mirrors the public Overview's colour-coded view, based on the "
+            f"**{panel_label}** "
+            + ("(click 🔍 Preview to refresh)." if snapshot is None
+               else "— click 🔍 Preview again after further edits to update.")
+        )
         st.plotly_chart(
             week_grid_figure(preview_df, monday),
             width="stretch", config={"displayModeBar": False},
-            key=f"edit_roster_preview_{monday.isoformat()}",
+            key=f"edit_roster_preview_{monday.isoformat()}_{ver}",
         )
 
     # ---- Duty-type colour legend (same as the public Overview) ------------ #
@@ -346,7 +420,7 @@ def main() -> None:
 
     # ---- Hours summary with under-/over-band highlighting ------------------ #
     summary_rows = []
-    for _, r in edited.iterrows():
+    for _, r in panel_source.iterrows():
         filled = sum(1 for c in day_cols if r[c])
         total = sum(
             shifts_by_code[r[c]].hours
@@ -398,10 +472,10 @@ def main() -> None:
     # ---- Staff per category per day ---------------------------------------- #
     st.subheader("Staff per category per day")
     st.caption(
-        "Counts based on the grid above. Wards count people physically in W1/W2/… "
-        "(EH/OH/OC/TAG). MOPD, PERI, MC/EL, OFF etc. count by duty type."
+        f"Counts based on the **{panel_label}**. Wards count people physically in "
+        "W1/W2/… (EH/OH/OC/TAG). MOPD, PERI, MC/EL, OFF etc. count by duty type."
     )
-    cat_table = daily_category_counts(edited, day_cols, days, shifts_by_code)
+    cat_table = daily_category_counts(panel_source, day_cols, days, shifts_by_code)
     if cat_table.empty:
         st.info("No assignments yet to summarize.")
     else:
