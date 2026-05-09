@@ -7,7 +7,6 @@ dependencies = [
     "streamlit[auth]>=1.42",
     "streamlit-autorefresh>=1.0.1",
     "streamlit-elements>=0.1.0",
-    "streamlit-sortables>=0.3.1",
     "boto3>=1.34",
     "pandas>=2.2",
     "plotly>=5.22",
@@ -25,6 +24,13 @@ dev = [
     "ruff>=0.5",
     "black>=24.4",
 ]
+
+# Only `lib/` is a real importable package. `pages/` files are digit-prefixed
+# (`1_HO_Stats.py`, etc.) — Streamlit loads them by file path, not import. And
+# `infrastructure/` is IaC scripts. Without this, setuptools' flat-layout
+# discovery refuses the build because it sees three top-level dirs.
+[tool.setuptools]
+packages = ["lib"]
 
 [tool.ruff]
 line-length = 100

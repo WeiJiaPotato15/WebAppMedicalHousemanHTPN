@@ -17,14 +17,13 @@ A Streamlit web app that replaces the Google Sheet currently used by the Medical
 
 ### Admin, after Google sign-in
 
-- **Edit Roster** — spreadsheet grid (rows = HOs, columns = days of the chosen week). Each cell is a dropdown of all 37 shift codes. Changes save instantly, log to the audit table, and broadcast to other admins within 5 s via `streamlit-autorefresh`. Below the grid:
+- **Edit Roster** — spreadsheet grid (rows = HOs, columns = days of the chosen week). Each cell is a dropdown of all 37 shift codes. Edits stay local in the data_editor; clicking **Save changes** persists the diff and writes audit rows. Single-admin editing by policy (no autorefresh). Below the grid:
   - **Hours summary** — per-HO weekly hours, with yellow highlight for under-60h and red for over-64h.
   - **Staff per category per day** — pivot table; zero cells in critical wards / OC / PERI / MOPD / PENDING ED light up red (MOPD on weekends is exempt).
   - **Color preview** — Overview-style heatmap of the editor's current state.
   - **Plan ahead** — when a week has data and the next week doesn't, a button creates next week as a draft, carrying the same officer row order forward.
   - **Publish** — when viewing a draft, a button publishes it to the public.
   - **Coverage & hours preview charts** (Plotly).
-- **Kanban view** — drag HO chips between shift columns for visual rebalancing of a single day. Saves on release.
 - **Officers** — manage the HO master list. Two tables:
   - *Computed summary* — read-only Name / Ward / Posting # / Posting start / EOP date / MC/EL used (derived live).
   - *Edit profiles* — IC number is the primary key; ward group is a dropdown of W1, W2, W3, W6; posting number is a dropdown of 1st–6th.
@@ -78,8 +77,7 @@ streamlit_app.py            # Public Overview entry, builds st.navigation sideba
 pages/
   1_HO_Stats.py             # Public per-HO stats
   2_Login.py                # Google OAuth gate + bootstrap-claim button
-  3_Edit_Roster.py          # Admin spreadsheet editor, presence, autorefresh
-  4_Kanban_View.py          # Admin drag-drop view
+  3_Edit_Roster.py          # Admin spreadsheet editor (manual save) + presence
   5_Officers.py             # Admin HO master list
   6_Master_Data.py          # Admin shift dictionary
   7_Admins.py               # Super-admin allowlist

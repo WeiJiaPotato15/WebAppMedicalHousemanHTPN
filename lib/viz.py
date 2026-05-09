@@ -82,10 +82,19 @@ def week_grid_figure(df: pd.DataFrame, monday: date) -> go.Figure:
     )
 
     # Build a colorscale from the unique colors actually present so per-shift
-    # overrides take effect. z indexes into that colorscale.
+    # overrides take effect. z indexes into that colorscale; empty cells get
+    # NaN so plotly renders them transparent. (Previously they got -1 which
+    # plotly clamps to zmin=0, painting blanks with the alphabetically-first
+    # colour — typically MOPD's cyan when MOPD shifts existed in the week.)
     unique_colors = sorted({c for c in color_pivot.values.flatten() if pd.notna(c)})
     color_idx = {c: i for i, c in enumerate(unique_colors)}
-    z = color_pivot.map(lambda c: color_idx.get(c, -1) if pd.notna(c) else -1).values
+
+    def _to_z(c):
+        if pd.notna(c) and c in color_idx:
+            return float(color_idx[c])
+        return float("nan")
+
+    z = color_pivot.map(_to_z).values
 
     text = pivot.fillna("").astype(str).values
     if unique_colors:
@@ -99,7 +108,8 @@ def week_grid_figure(df: pd.DataFrame, monday: date) -> go.Figure:
         z=z, x=day_labels, y=list(pivot.index), text=text,
         texttemplate="%{text}", textfont={"size": 15},
         colorscale=colorscale, zmin=0, zmax=max(0, len(unique_colors) - 1),
-        showscale=False, hovertemplate="%{y}<br>%{x}<br>%{text}<extra></extra>",
+        showscale=False, hoverongaps=False,
+        hovertemplate="%{y}<br>%{x}<br>%{text}<extra></extra>",
     ))
     fig.update_layout(
         height=max(260, 40 * len(pivot.index) + 90),

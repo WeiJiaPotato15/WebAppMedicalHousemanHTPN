@@ -159,7 +159,6 @@ pages = [
     st.Page("pages/1_HO_Stats.py", title="HO Stats", icon="📊"),
     st.Page("pages/2_Login.py", title="Login", icon="🔐"),
     st.Page("pages/3_Edit_Roster.py", title="Edit Roster", icon="📝"),
-    st.Page("pages/4_Kanban_View.py", title="Kanban", icon="🎯"),
     st.Page("pages/5_Officers.py", title="Officers", icon="👥"),
     st.Page("pages/6_Master_Data.py", title="Master Data", icon="⚙️"),
     st.Page("pages/7_Admins.py", title="Admins", icon="🛡️"),
