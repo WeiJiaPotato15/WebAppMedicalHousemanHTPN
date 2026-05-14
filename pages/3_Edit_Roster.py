@@ -148,13 +148,16 @@ def main() -> None:
         ordered = sorted(all_officers, key=lambda x: ((x.ward_group or "~"), x.name))
 
     # Apply posting-window filter: hide HOs whose posting hasn't started by
-    # week's end, and HOs whose EOP fell before this week's Monday.
+    # week's end, and HOs whose *real* EOP cell is before this week's Monday.
+    # Tentative EOP is informational only — admins can keep scheduling past it
+    # (the postponement bumps if they replace the tentative cell when it shows
+    # up in a visible week).
     def in_window(o) -> bool:
         if o.posting_start_date > week_sunday:
             return False  # not yet posting
-        eop = eop_dates.get(o.ic_number)
-        if eop is not None and eop < monday:
-            return False  # already finished
+        cell_eop = eop_cell_dates.get(o.ic_number)
+        if cell_eop is not None and cell_eop < monday:
+            return False  # marked done by a real EOP cell
         return True
 
     officers = [o for o in ordered if in_window(o)]
@@ -313,14 +316,15 @@ def main() -> None:
                     in_week_cell_eop[ic] = d
 
     def effective_eop(ic: str) -> date | None:
+        # Only real EOP cells block writes. Tentative EOP is informational —
+        # admins can keep scheduling past it; the postponement bumps when
+        # admin replaces an overlay cell that's actually shown in the week.
         cands = []
         if ic in external_cell_eop:
             cands.append(external_cell_eop[ic])
         if ic in in_week_cell_eop:
             cands.append(in_week_cell_eop[ic])
-        if cands:
-            return min(cands)
-        return tentative_eops.get(ic)
+        return min(cands) if cands else None
 
     # ---- Save bar --------------------------------------------------------- #
     has_changes = not edited.equals(display_grid)
@@ -589,11 +593,13 @@ def main() -> None:
         )
         if c2.button("➕ Create roster for next week", type="primary",
                      key=f"create_next_{next_monday.isoformat()}"):
-            # Drop officers whose End-of-Posting is before next Monday — they've
-            # already finished their rotation, so don't carry them forward.
+            # Drop officers whose *real* EOP cell is before next Monday — they've
+            # been explicitly marked done. Tentative-only HOs still get carried
+            # (admin can extend or finalize them later).
             carried = [
                 o.ic_number for o in officers
-                if (eop_dates.get(o.ic_number) is None) or (eop_dates[o.ic_number] >= next_monday)
+                if (eop_cell_dates.get(o.ic_number) is None)
+                or (eop_cell_dates[o.ic_number] >= next_monday)
             ]
             dropped = len(officers) - len(carried)
             store.create_week_template(
