@@ -1,6 +1,7 @@
 """Shared constants: week math, color palette, seed shift data, policy thresholds."""
 from __future__ import annotations
 
+import calendar
 from datetime import date, datetime, timedelta, timezone
 from typing import Iterable
 
@@ -22,6 +23,15 @@ WEEKEND_OK_CATEGORIES: set[str] = {"MOPD"}
 LEAVE_DUTY_TYPES = {"MC/EL"}  # counted toward the 10-cap
 ANNUAL_LEAVE_TYPES = {"AL"}    # tracked but separate
 NON_WORK_DUTY_TYPES = {"OFF", "PC", "AL", "MC/EL", "COURSE", "EOP"}
+
+# EOP policy: a posting tentatively ends 4 calendar months after the start,
+# minus 1 day (so 1 Jan + 4mo - 1d = 30 Apr — the last day of posting).
+# MC/EL above LEAVE_CAP_DEFAULT pushes the date back day-for-day. Each manual
+# postponement (tracked on Officer.postponement_count) shifts it back by
+# POSTPONEMENT_DAYS_PER_BUMP days.
+POSTING_MONTHS = 4
+POSTPONEMENT_DAYS_PER_BUMP = 14
+LEAVE_CAP_DEFAULT = 10
 
 # Color per duty_type for the public roster heatmap and chips.
 DUTY_COLORS: dict[str, str] = {
@@ -106,6 +116,34 @@ def daterange(a: date, b: date) -> Iterable[date]:
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def add_months(d: date, months: int) -> date:
+    """Return d + months, clamping the day to the last day of the target month
+    (so 31 Jan + 1 month = 28/29 Feb, not an invalid date)."""
+    m = d.month - 1 + months
+    year = d.year + m // 12
+    month = m % 12 + 1
+    day = min(d.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+def compute_tentative_eop(
+    posting_start: date,
+    mc_count: int,
+    postponement_count: int,
+    leave_cap: int = LEAVE_CAP_DEFAULT,
+) -> date:
+    """Tentative EOP from posting start + MC delay + manual postponements.
+
+    Formula: posting_start + POSTING_MONTHS - 1 day
+             + max(0, mc_count - leave_cap) days
+             + postponement_count * POSTPONEMENT_DAYS_PER_BUMP days
+    """
+    base = add_months(posting_start, POSTING_MONTHS) - timedelta(days=1)
+    leave_delay = max(0, mc_count - leave_cap)
+    postpone_delay = max(0, postponement_count) * POSTPONEMENT_DAYS_PER_BUMP
+    return base + timedelta(days=leave_delay + postpone_delay)
 
 
 def safe_secret(section: str, key: str, default):

@@ -20,7 +20,13 @@ from collections import defaultdict
 from datetime import date
 from typing import Optional
 
-from .constants import LEAVE_DUTY_TYPES, SEED_SHIFTS, now_iso
+from .constants import (
+    LEAVE_CAP_DEFAULT,
+    LEAVE_DUTY_TYPES,
+    SEED_SHIFTS,
+    compute_tentative_eop,
+    now_iso,
+)
 from .models import Admin, Assignment, AuditEntry, Officer, Shift
 
 # ---- Table names ---------------------------------------------------------- #
@@ -97,11 +103,17 @@ class Store(ABC):
             out[o.ic_number] = n
         return out
 
-    # End-of-posting dates. Derived from assignments — no separate stored field.
-    def list_eop_dates(self) -> dict[str, date]:
-        """Return {ic_number: earliest_EOP_date} for every officer with at least
-        one assignment whose shift has duty_type == "EOP". Derived live, so always
-        consistent with the current roster — no sync logic needed."""
+    # End-of-posting dates. Two layers:
+    #   list_eop_cell_dates() — earliest EOP-coded cell per officer, if any.
+    #     This is the manual-override layer: when a leader places an EOP cell
+    #     on the roster, that date wins.
+    #   list_eop_dates() — effective EOP for every officer, with the cell
+    #     winning when present, otherwise the formula tentative
+    #     (posting_start + 4mo - 1d + MC delay + postponement bumps).
+    def list_eop_cell_dates(self) -> dict[str, date]:
+        """Return {ic_number: earliest_EOP_cell_date} for officers who have at
+        least one assignment with duty_type == "EOP". Officers without an EOP
+        cell are absent from the dict (caller should fall back to tentative)."""
         eop_codes = {s.code for s in self.list_shifts() if s.duty_type == "EOP"}
         if not eop_codes:
             return {}
@@ -116,6 +128,29 @@ class Store(ABC):
                     cur = out.get(o.ic_number)
                     if cur is None or a.on_date < cur:
                         out[o.ic_number] = a.on_date
+        return out
+
+    def list_eop_dates(self, leave_cap: int = LEAVE_CAP_DEFAULT) -> dict[str, date]:
+        """Return effective EOP for every officer.
+
+        Resolution order per officer:
+          1. earliest EOP-coded cell on their roster, if one exists (override),
+          2. otherwise the formula tentative (posting_start + 4mo - 1d
+             + MC/EL excess + postponement_count × 14d).
+        """
+        cell_dates = self.list_eop_cell_dates()
+        leave_counts = self.list_leave_counts()
+        out: dict[str, date] = {}
+        for o in self.list_officers():
+            if o.ic_number in cell_dates:
+                out[o.ic_number] = cell_dates[o.ic_number]
+            else:
+                out[o.ic_number] = compute_tentative_eop(
+                    posting_start=o.posting_start_date,
+                    mc_count=leave_counts.get(o.ic_number, 0),
+                    postponement_count=o.postponement_count,
+                    leave_cap=leave_cap,
+                )
         return out
 
     # Week templates — snapshot of officer row order at week creation.
@@ -328,8 +363,8 @@ class MemoryStore(Store):
     def list_unpublished_weeks(self):
         return {m for m, rec in self._templates.items() if not rec.get("is_published")}
 
-    # EOP — direct dict scan
-    def list_eop_dates(self):
+    # EOP cells — direct dict scan
+    def list_eop_cell_dates(self):
         eop_codes = {s.code for s in self.list_shifts() if s.duty_type == "EOP"}
         if not eop_codes:
             return {}
@@ -393,6 +428,7 @@ class DynamoStore(Store):
         out = []
         for it in resp.get("Items", []):
             pn = it.get("posting_number")
+            pp = it.get("postponement_count", 0)
             out.append(Officer(
                 ic_number=it["pk"].split("#", 1)[1],
                 name=it["name"],
@@ -401,6 +437,7 @@ class DynamoStore(Store):
                 active=it.get("active", True),
                 ward_group=it.get("ward_group"),
                 posting_number=int(pn) if pn is not None else None,
+                postponement_count=int(pp) if pp is not None else 0,
             ))
         return sorted(out, key=lambda o: o.name)
 
@@ -414,6 +451,7 @@ class DynamoStore(Store):
             "active": o.active,
             "ward_group": o.ward_group,
             "posting_number": o.posting_number,
+            "postponement_count": int(o.postponement_count or 0),
         })
         self._t(T_OFFICERS).put_item(Item=item)
 
@@ -626,8 +664,8 @@ class DynamoStore(Store):
                 continue
         return out
 
-    # EOP — single scan + Python-side filter (table is small)
-    def list_eop_dates(self):
+    # EOP cells — single scan + Python-side filter (table is small)
+    def list_eop_cell_dates(self):
         eop_codes = {s.code for s in self.list_shifts() if s.duty_type == "EOP"}
         if not eop_codes:
             return {}

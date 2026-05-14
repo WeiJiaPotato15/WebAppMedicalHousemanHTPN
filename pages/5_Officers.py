@@ -10,7 +10,14 @@ import pandas as pd
 import streamlit as st
 
 from lib.auth import require_admin
-from lib.constants import WARD_GROUPS, now_iso, safe_secret
+from lib.constants import (
+    LEAVE_CAP_DEFAULT,
+    POSTPONEMENT_DAYS_PER_BUMP,
+    WARD_GROUPS,
+    compute_tentative_eop,
+    now_iso,
+    safe_secret,
+)
 from lib.db import get_store
 from lib.models import AuditEntry, Officer
 
@@ -77,9 +84,10 @@ def main() -> None:
         return
 
     # ---- Read-only computed summary (always fresh) ------------------------ #
-    eop_dates = store.list_eop_dates()
+    eop_dates = store.list_eop_dates()           # effective EOP (cell or tentative)
+    eop_cell_dates = store.list_eop_cell_dates() # only real EOP cells (overrides)
     leave_counts = store.list_leave_counts()
-    cap = int(safe_secret("app", "leave_cap", 10))
+    cap = int(safe_secret("app", "leave_cap", LEAVE_CAP_DEFAULT))
     today = date.today()
 
     def _days_in_dept(o: Officer) -> int:
@@ -89,21 +97,43 @@ def main() -> None:
         end = min(eop, today) if eop else today
         return max(0, (end - o.posting_start_date).days)
 
+    def _tentative_eop(o: Officer) -> date:
+        return compute_tentative_eop(
+            posting_start=o.posting_start_date,
+            mc_count=leave_counts.get(o.ic_number, 0),
+            postponement_count=o.postponement_count,
+            leave_cap=cap,
+        )
+
     summary_df = pd.DataFrame([{
         "Name": o.name,
         "Ward": o.ward_group or "—",
         "Posting #": o.posting_number,
         "Posting start": o.posting_start_date,
         "Days in dept": _days_in_dept(o),
-        "EOP date": eop_dates.get(o.ic_number),
+        "Tentative EOP": _tentative_eop(o),
+        "Effective EOP": eop_dates.get(o.ic_number),
+        "EOP source": "cell (manual)" if o.ic_number in eop_cell_dates else "tentative",
+        "Postponements": o.postponement_count,
         f"MC/EL used (cap {cap})": leave_counts.get(o.ic_number, 0),
     } for o in officers])
     st.markdown("##### Computed summary")
-    st.caption("EOP date and MC/EL count are derived live from each HO's roster cells.")
+    st.caption(
+        f"**Tentative EOP** = posting_start + 4 months − 1 day "
+        f"+ max(0, MC/EL − {cap}) days "
+        f"+ postponements × {POSTPONEMENT_DAYS_PER_BUMP} days. "
+        "**Effective EOP** = a real EOP cell on the roster if one exists, "
+        "otherwise the tentative."
+    )
     st.dataframe(summary_df, hide_index=True, width="stretch")
 
     # ---- Bulk edit grid (editable fields only) ---------------------------- #
     st.markdown("##### Edit profiles")
+    st.caption(
+        "**Postponements** auto-increment when the leader replaces a tentative "
+        "EOP cell on the roster. Edit it here only to undo a wrong bump or "
+        "stage a planned extension."
+    )
     df = pd.DataFrame([o.model_dump() for o in officers])
     edited = st.data_editor(
         df,
@@ -123,9 +153,14 @@ def main() -> None:
                 options=[None, 1, 2, 3, 4, 5, 6],
                 help="Which medical posting (1st–6th).",
             ),
+            "postponement_count": st.column_config.NumberColumn(
+                "Postponements",
+                min_value=0, step=1, format="%d",
+                help=f"Each unit pushes tentative EOP by {POSTPONEMENT_DAYS_PER_BUMP} days.",
+            ),
         },
         column_order=("name", "ic_number", "ward_group", "posting_number",
-                      "posting_start_date", "phone", "active"),
+                      "posting_start_date", "phone", "active", "postponement_count"),
         width="stretch",
         hide_index=True,
         num_rows="fixed",

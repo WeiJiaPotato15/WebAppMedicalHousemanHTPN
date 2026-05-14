@@ -18,6 +18,11 @@ class Officer(BaseModel):
     ward_group: Optional[str] = None
     # Which medical posting this is for the HO — typically 1 to 6.
     posting_number: Optional[int] = None
+    # Number of 2-week EOP postponements applied (e.g. failed assessments).
+    # Each unit pushes the tentative EOP back by POSTPONEMENT_DAYS_PER_BUMP days.
+    # The Edit Roster auto-increments this when the leader replaces the
+    # tentative EOP cell with a non-EOP shift.
+    postponement_count: int = 0
 
 
 class Shift(BaseModel):

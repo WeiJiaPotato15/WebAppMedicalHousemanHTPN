@@ -26,7 +26,10 @@ from lib.auth import require_admin
 from lib.constants import (
     CRITICAL_COVERAGE_CATEGORIES,
     DUTY_COLORS,
+    LEAVE_CAP_DEFAULT,
+    POSTPONEMENT_DAYS_PER_BUMP,
     WEEKEND_OK_CATEGORIES,
+    compute_tentative_eop,
     safe_secret,
     week_dates,
     week_label,
@@ -90,7 +93,10 @@ def main() -> None:
     shifts = store.list_shifts()
     assignments = store.get_week_assignments(monday)
     template_ics = store.get_week_template(monday)
-    eop_dates = store.list_eop_dates()
+    eop_dates = store.list_eop_dates()             # effective EOP (cell or tentative)
+    eop_cell_dates = store.list_eop_cell_dates()   # only real EOP cells (overrides)
+    leave_counts = store.list_leave_counts()
+    leave_cap = int(safe_secret("app", "leave_cap", LEAVE_CAP_DEFAULT))
     eop_codes = {s.code for s in shifts if s.duty_type == "EOP"}
 
     if not all_officers:
@@ -100,10 +106,9 @@ def main() -> None:
         st.warning("Add shift codes first on the **Master Data** page.")
         return
 
-    # Render-time sweep: clear any saved cells outside [posting_start, eop]
-    # for officers in this week. Catches leftover assignments from before the
-    # EOP/start was set, which would otherwise stay forever (the save-loop
-    # block only catches NEW writes).
+    # Render-time sweep: clear any saved cells outside [posting_start, real_eop_cell]
+    # for officers in this week. Only sweeps past a *real* EOP cell — tentative
+    # EOP doesn't trigger sweeping (the postponement bump handles that).
     by_ic_full = {o.ic_number: o for o in all_officers}
     swept = []
     kept_assignments = []
@@ -116,7 +121,7 @@ def main() -> None:
             store.set_assignment(a.ic_number, a.on_date, None, user.email)
             swept.append((o.name, a.on_date, a.shift_code, "before posting"))
             continue
-        eop = eop_dates.get(a.ic_number)
+        eop = eop_cell_dates.get(a.ic_number)
         if eop is not None and a.on_date > eop:
             store.set_assignment(a.ic_number, a.on_date, None, user.email)
             swept.append((o.name, a.on_date, a.shift_code, "after EOP"))
@@ -181,6 +186,47 @@ def main() -> None:
         grid_rows.append(row)
     grid = pd.DataFrame(grid_rows)
 
+    # Tentative EOP overlay: for each officer in view who has NO real EOP cell,
+    # if their tentative EOP falls in this week and the cell is empty, prefill
+    # the grid with "EOP" as a visual hint. Stored separately as overlay_cells
+    # so the save loop can distinguish them from real writes.
+    tentative_eops: dict[str, date] = {}
+    for o in officers:
+        tentative_eops[o.ic_number] = compute_tentative_eop(
+            posting_start=o.posting_start_date,
+            mc_count=leave_counts.get(o.ic_number, 0),
+            postponement_count=o.postponement_count,
+            leave_cap=leave_cap,
+        )
+    overlay_cells: set[tuple[str, date]] = set()
+    display_grid = grid.copy()
+    for o in officers:
+        if o.ic_number in eop_cell_dates:
+            continue  # has a real EOP cell — no overlay
+        teop = tentative_eops[o.ic_number]
+        if not (monday <= teop <= week_sunday):
+            continue
+        if (o.ic_number, teop) in by_key:
+            continue  # cell is already occupied by a real assignment
+        dlabel = teop.strftime("%a %d/%m")
+        idx = display_grid.index[display_grid["ic_number"] == o.ic_number]
+        if len(idx) and dlabel in display_grid.columns:
+            display_grid.at[idx[0], dlabel] = "EOP"
+            overlay_cells.add((o.ic_number, teop))
+
+    if overlay_cells:
+        names_by_ic = {o.ic_number: o.name for o in officers}
+        notes = ", ".join(
+            f"{names_by_ic.get(ic, ic)} ({d.strftime('%a %d/%m')})"
+            for ic, d in sorted(overlay_cells, key=lambda x: x[1])
+        )
+        st.caption(
+            f"💡 Tentative EOP this week — {notes}. "
+            f"These cells display **EOP** automatically. Replace with another shift "
+            f"to postpone EOP by {POSTPONEMENT_DAYS_PER_BUMP} days; place an EOP cell "
+            "elsewhere to override the date entirely."
+        )
+
     shift_options = [""] + [s.code for s in shifts]
     column_config: dict = {
         "ward": st.column_config.TextColumn("Ward", disabled=True, width="small"),
@@ -230,9 +276,16 @@ def main() -> None:
                 + "; ".join(entries[:8])
                 + (f"; +{len(entries) - 8} more" if len(entries) > 8 else "")
             )
+        if last_save.get("bumped"):
+            entries = last_save["bumped"]
+            st.info(
+                f"⏩ **EOP postponed +{POSTPONEMENT_DAYS_PER_BUMP}d for {len(entries)} HO(s)**: "
+                + "; ".join(entries[:8])
+                + (f"; +{len(entries) - 8} more" if len(entries) > 8 else "")
+            )
 
     edited = st.data_editor(
-        grid,
+        display_grid,
         column_config=column_config,
         column_order=("ward", "name", *day_cols),  # hide ic_number column from view
         width="stretch",
@@ -241,31 +294,36 @@ def main() -> None:
         key=editor_key,
     )
 
-    # Compute effective EOP per officer for the post-save validation:
-    # min(saved EOP outside this week, EOP in the edited state for this week).
-    external_eop: dict[str, date] = {
-        ic: d for ic, d in eop_dates.items() if d < monday or d > week_sunday
+    # Compute effective EOP per officer for the post-save validation.
+    # Real EOP cells (saved in other weeks OR newly placed in the edited state)
+    # win; otherwise fall back to the tentative formula. An overlay cell still
+    # showing "EOP" doesn't count as a real cell write — admin would need to
+    # actively place an EOP cell on a different date for it to override.
+    external_cell_eop: dict[str, date] = {
+        ic: d for ic, d in eop_cell_dates.items() if d < monday or d > week_sunday
     }
-    in_week_eop: dict[str, date] = {}
+    in_week_cell_eop: dict[str, date] = {}
     for _, r in edited.iterrows():
         ic = r["ic_number"]
         for d, dlabel in zip(days, day_cols):
             code = r[dlabel]
-            if code in eop_codes:
-                cur = in_week_eop.get(ic)
+            if code in eop_codes and (ic, d) not in overlay_cells:
+                cur = in_week_cell_eop.get(ic)
                 if cur is None or d < cur:
-                    in_week_eop[ic] = d
+                    in_week_cell_eop[ic] = d
 
     def effective_eop(ic: str) -> date | None:
         cands = []
-        if ic in external_eop:
-            cands.append(external_eop[ic])
-        if ic in in_week_eop:
-            cands.append(in_week_eop[ic])
-        return min(cands) if cands else None
+        if ic in external_cell_eop:
+            cands.append(external_cell_eop[ic])
+        if ic in in_week_cell_eop:
+            cands.append(in_week_cell_eop[ic])
+        if cands:
+            return min(cands)
+        return tentative_eops.get(ic)
 
     # ---- Save bar --------------------------------------------------------- #
-    has_changes = not edited.equals(grid)
+    has_changes = not edited.equals(display_grid)
     save_col, hint_col = st.columns([1, 5])
     save_clicked = save_col.button(
         "💾 Save changes",
@@ -280,6 +338,12 @@ def main() -> None:
         saved = 0
         blocked_pre: list[str] = []
         blocked_post: list[str] = []
+        # Track whether each officer ends this save with any real EOP cell:
+        # used after the write loop to decide whether overlay-cell overwrites
+        # should bump postponement_count.
+        has_real_cell_after: dict[str, bool] = {}
+        for ic in {r["ic_number"] for _, r in edited.iterrows()}:
+            has_real_cell_after[ic] = ic in eop_cell_dates  # external real cell
         for i, row in edited.iterrows():
             ic = row["ic_number"]
             name = row["name"]
@@ -287,7 +351,15 @@ def main() -> None:
             eop = effective_eop(ic)
             for d, dlabel in zip(days, day_cols):
                 new = (row[dlabel] or "") if pd.notna(row[dlabel]) else ""
-                old = grid.at[i, dlabel] if dlabel in grid.columns else ""
+                is_overlay = (ic, d) in overlay_cells
+                # For overlay cells the "real" old value is empty, not "EOP" —
+                # so an admin keeping the overlay as EOP is a no-op write, and
+                # admin actively replacing it shows a true diff vs the DB.
+                old = "" if is_overlay else (grid.at[i, dlabel] if dlabel in grid.columns else "")
+                # Special case: keeping the tentative as EOP doesn't materialize
+                # it as a real cell. Stays tentative (auto-tracks MC accrual).
+                if is_overlay and new in eop_codes:
+                    continue
                 if new == old:
                     continue
                 # Reject non-empty writes to cells before the HO's posting starts
@@ -305,6 +377,37 @@ def main() -> None:
                     actor_email=user.email,
                 )
                 saved += 1
+                if new in eop_codes:
+                    has_real_cell_after[ic] = True
+
+        # Postponement detection: for each overlay cell, if admin saved a
+        # non-empty non-EOP shift AND the officer doesn't end up with a real
+        # EOP cell elsewhere, bump postponement_count by 1 (= +14 days).
+        bumped_msgs: list[str] = []
+        for ic, d in overlay_cells:
+            row_match = edited[edited["ic_number"] == ic]
+            if row_match.empty:
+                continue
+            dlabel = d.strftime("%a %d/%m")
+            new_val = row_match[dlabel].iloc[0] if dlabel in row_match.columns else ""
+            new_val = (new_val or "") if pd.notna(new_val) else ""
+            if not new_val or new_val in eop_codes:
+                continue
+            if has_real_cell_after.get(ic):
+                continue
+            o = by_ic.get(ic)
+            if o is None:
+                continue
+            o.postponement_count = (o.postponement_count or 0) + 1
+            store.upsert_officer(o)
+            new_teop = compute_tentative_eop(
+                posting_start=o.posting_start_date,
+                mc_count=leave_counts.get(ic, 0),
+                postponement_count=o.postponement_count,
+                leave_cap=leave_cap,
+            )
+            bumped_msgs.append(f"{o.name} → {new_teop.strftime('%d %b %Y')}")
+
         # Stash alerts in session state so they survive the rerun. The
         # persisted block above renders them on the next pass; they auto-clear
         # as soon as the admin starts editing again (see has_resumed_editing).
@@ -312,6 +415,7 @@ def main() -> None:
             "saved": saved,
             "blocked_pre": blocked_pre,
             "blocked_post": blocked_post,
+            "bumped": bumped_msgs,
         }
         # Bump the editor version so the widget reloads from fresh DB state on
         # rerun. Critical when there were rejections — otherwise the data_editor

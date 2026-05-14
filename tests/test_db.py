@@ -2,9 +2,9 @@
 (not run on every commit) since it requires real AWS credentials."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
-from lib.constants import SEED_SHIFTS
+from lib.constants import SEED_SHIFTS, compute_tentative_eop
 from lib.db import MemoryStore
 from lib.models import Officer
 
@@ -152,15 +152,72 @@ def test_publish_week_no_template_is_noop():
     assert s.is_week_published(past_monday) is True  # was already published
 
 
-def test_list_eop_dates_returns_earliest_per_officer():
+def test_list_eop_cell_dates_returns_earliest_per_officer():
     s = fresh_store()
     s.upsert_officer(Officer(ic_number=IC_A, name="A", posting_start_date=date(2026, 1, 1)))
     s.upsert_officer(Officer(ic_number=IC_B, name="B", posting_start_date=date(2026, 1, 1)))
     s.set_assignment(IC_A, date(2026, 5, 28), "EOP", "leader@x.com")
     s.set_assignment(IC_A, date(2026, 5, 29), "EOP", "leader@x.com")
     s.set_assignment(IC_B, date(2026, 6, 1), "OFF", "leader@x.com")
-    out = s.list_eop_dates()
+    out = s.list_eop_cell_dates()
     assert out == {IC_A: date(2026, 5, 28)}
+
+
+def test_list_eop_dates_falls_back_to_tentative_for_officers_without_cells():
+    """Tentative EOP = posting_start + 4mo - 1d, when no MC and no postponements."""
+    s = fresh_store()
+    s.upsert_officer(Officer(ic_number=IC_A, name="A", posting_start_date=date(2026, 1, 1)))
+    s.upsert_officer(Officer(ic_number=IC_B, name="B", posting_start_date=date(2026, 1, 1)))
+    # IC_A has a real EOP cell — it should win.
+    s.set_assignment(IC_A, date(2026, 4, 15), "EOP", "leader@x.com")
+    out = s.list_eop_dates()
+    assert out[IC_A] == date(2026, 4, 15)        # cell wins
+    assert out[IC_B] == date(2026, 4, 30)        # tentative (1 Jan + 4mo - 1d)
+
+
+def test_tentative_eop_extends_with_excess_mc_el():
+    s = fresh_store()
+    s.upsert_officer(Officer(ic_number=IC_A, name="A", posting_start_date=date(2026, 1, 1)))
+    # 11 MC/EL days = 1 day past the 10-cap, so EOP shifts +1 day.
+    for d in [date(2026, 1, 5 + i) for i in range(11)]:
+        s.set_assignment(IC_A, d, "MC/EL", "leader@x.com")
+    out = s.list_eop_dates()
+    assert out[IC_A] == date(2026, 5, 1)
+
+
+def test_tentative_eop_extends_with_postponement_count():
+    s = fresh_store()
+    s.upsert_officer(Officer(
+        ic_number=IC_A, name="A",
+        posting_start_date=date(2026, 1, 1),
+        postponement_count=2,  # 2 × 14 days = +28 days
+    ))
+    out = s.list_eop_dates()
+    assert out[IC_A] == date(2026, 4, 30) + timedelta(days=28)
+
+
+def test_tentative_eop_combines_mc_and_postponement():
+    s = fresh_store()
+    s.upsert_officer(Officer(
+        ic_number=IC_A, name="A",
+        posting_start_date=date(2026, 1, 1),
+        postponement_count=1,
+    ))
+    for d in [date(2026, 1, 5 + i) for i in range(15)]:  # 15 MC = +5 days
+        s.set_assignment(IC_A, d, "MC/EL", "leader@x.com")
+    out = s.list_eop_dates()
+    # 30 Apr + 5 (mc) + 14 (postpone) = 19 May
+    assert out[IC_A] == date(2026, 5, 19)
+
+
+def test_compute_tentative_eop_examples_from_spec():
+    # From the user's worked example.
+    assert compute_tentative_eop(
+        posting_start=date(2026, 1, 1), mc_count=0, postponement_count=0
+    ) == date(2026, 4, 30)
+    assert compute_tentative_eop(
+        posting_start=date(2026, 1, 1), mc_count=11, postponement_count=0
+    ) == date(2026, 5, 1)
 
 
 def test_list_leave_counts():
@@ -179,9 +236,12 @@ def test_list_leave_counts():
     assert out[IC_B] == 1
 
 
-def test_list_eop_dates_empty_when_no_eop_codes():
+def test_list_eop_cell_dates_empty_when_no_eop_codes():
+    """If the EOP shift code is deleted, no cell can be tagged as EOP — but
+    the tentative EOP from the formula still applies in list_eop_dates()."""
     s = fresh_store()
     s.delete_shift("EOP")
     s.upsert_officer(Officer(ic_number=IC_A, name="A", posting_start_date=date(2026, 1, 1)))
     s.set_assignment(IC_A, date(2026, 5, 28), "OFF", "leader@x.com")
-    assert s.list_eop_dates() == {}
+    assert s.list_eop_cell_dates() == {}
+    assert s.list_eop_dates() == {IC_A: date(2026, 4, 30)}
