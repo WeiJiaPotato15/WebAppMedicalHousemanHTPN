@@ -105,6 +105,33 @@ def main() -> None:
             leave_cap=cap,
         )
 
+    # "Actual EOP" = whichever is later between tentative and effective EOP.
+    # The default filter hides officers whose actual EOP is already in the
+    # past so the table shows only currently-active HOs.
+    def _actual_eop(o: Officer) -> date:
+        teop = _tentative_eop(o)
+        eeop = eop_dates.get(o.ic_number)
+        return max(teop, eeop) if eeop else teop
+
+    visible_filter = st.radio(
+        "Show",
+        options=["Active only", "All officers"],
+        index=0,
+        horizontal=True,
+        help="Active = actual EOP (later of tentative or effective) is today or later.",
+        key="officers_visibility_filter",
+    )
+    if visible_filter == "Active only":
+        visible_officers = [o for o in officers if _actual_eop(o) >= today]
+    else:
+        visible_officers = list(officers)
+    visible_officers = sorted(visible_officers, key=lambda o: o.name)
+    hidden_n = len(officers) - len(visible_officers)
+
+    if not visible_officers:
+        st.info("No active officers — switch to **All officers** to see past HOs.")
+        return
+
     summary_df = pd.DataFrame([{
         "Name": o.name,
         "Ward": o.ward_group or "—",
@@ -116,7 +143,7 @@ def main() -> None:
         "EOP source": "cell (manual)" if o.ic_number in eop_cell_dates else "tentative",
         "Postponements": o.postponement_count,
         f"MC/EL used (cap {cap})": leave_counts.get(o.ic_number, 0),
-    } for o in officers])
+    } for o in visible_officers])
     st.markdown("##### Computed summary")
     st.caption(
         f"**Tentative EOP** = posting_start + 4 months − 1 day "
@@ -124,6 +151,7 @@ def main() -> None:
         f"+ postponements × {POSTPONEMENT_DAYS_PER_BUMP} days. "
         "**Effective EOP** = a real EOP cell on the roster if one exists, "
         "otherwise the tentative."
+        + (f" _{hidden_n} past-EOP HO(s) hidden._" if hidden_n else "")
     )
     st.dataframe(summary_df, hide_index=True, width="stretch")
 
@@ -134,7 +162,7 @@ def main() -> None:
         "EOP cell on the roster. Edit it here only to undo a wrong bump or "
         "stage a planned extension."
     )
-    df = pd.DataFrame([o.model_dump() for o in officers])
+    df = pd.DataFrame([o.model_dump() for o in visible_officers])
     edited = st.data_editor(
         df,
         column_config={
