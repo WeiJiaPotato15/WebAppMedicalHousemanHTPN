@@ -135,17 +135,11 @@ def main() -> None:
             + (f"; +{len(swept)-5} more" if len(swept) > 5 else "")
         )
 
-    # Row order: template if this week was explicitly created, else group by
-    # ward then alphabetical name.
+    # Row order: always group by ward, then alphabetical name. Late-added HOs
+    # naturally slot into their ward section. The week template still exists
+    # for publish/draft state, but no longer dictates row order.
     by_ic = {o.ic_number: o for o in all_officers}
-    if template_ics:
-        ordered = [by_ic[ic] for ic in template_ics if ic in by_ic]
-        st.caption(
-            f"Roster created with {len(ordered)} officers in fixed order. "
-            "Adding/removing officers globally won't affect this week's row layout."
-        )
-    else:
-        ordered = sorted(all_officers, key=lambda x: ((x.ward_group or "~"), x.name))
+    ordered = sorted(all_officers, key=lambda x: ((x.ward_group or "~"), x.name))
 
     # Apply posting-window filter: hide HOs whose posting hasn't started by
     # week's end, and HOs whose *real* EOP cell is before this week's Monday.
